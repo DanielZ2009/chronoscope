@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Owner Repair Panel | Chronoscope</title>
     <link rel="icon" href="assets/chronoscope-wax-seal-256.png" type="image/png" />
-    <link rel="stylesheet" href="style.css?v=chronoscope-2" />
-    <script src="script.js?v=chronoscope-2" defer></script>
+    <link rel="stylesheet" href="style.css?v=chronoscope-3" />
+    <script src="script.js?v=chronoscope-3" defer></script>
   </head>
   <body data-page="admin">
     <header class="site-header">
@@ -72,13 +72,37 @@
               Home page primary image URL/path
               <input id="homeImageSettingOne" placeholder="assets/images/cairo_street_001.svg" />
             </label>
+            <label>
+              Primary image place
+              <input id="homePlaceSettingOne" placeholder="Cairo, Egypt" />
+            </label>
+            <label>
+              Primary image time
+              <input id="homeTimeSettingOne" placeholder="c. 1910" />
+            </label>
             <label class="full-span">
               Home page secondary image 1 URL/path
               <input id="homeImageSettingTwo" placeholder="assets/images/beijing_church_001.svg" />
             </label>
+            <label>
+              Secondary image 1 place
+              <input id="homePlaceSettingTwo" placeholder="Beijing, China" />
+            </label>
+            <label>
+              Secondary image 1 time
+              <input id="homeTimeSettingTwo" placeholder="c. 1910" />
+            </label>
             <label class="full-span">
               Home page secondary image 2 URL/path
               <input id="homeImageSettingThree" placeholder="assets/images/mumbai_station_001.svg" />
+            </label>
+            <label>
+              Secondary image 2 place
+              <input id="homePlaceSettingThree" placeholder="Mumbai, India" />
+            </label>
+            <label>
+              Secondary image 2 time
+              <input id="homeTimeSettingThree" placeholder="c. 1905" />
             </label>
             <label class="checkbox-row">
               <input id="includeApprovedLocal" type="checkbox" />
@@ -96,6 +120,39 @@
             </div>
           </form>
           <p class="loading-note" id="ownerSettingsStatus"></p>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Public publishing</p>
+              <h2>Publish Changes</h2>
+            </div>
+            <div class="admin-toolbar">
+              <button class="secondary-button" type="button" id="copySiteSettingsJson">
+                Copy Site Settings
+              </button>
+              <button class="secondary-button" type="button" id="copyPublishedImagesJson">
+                Copy Game Images
+              </button>
+            </div>
+          </div>
+          <p>
+            Owner edits are drafts stored in this browser. To make them visible
+            on every device, copy these records into the matching files in the
+            GitHub repository, then commit the changes.
+          </p>
+          <div class="publish-grid">
+            <label>
+              data/site_settings.json
+              <textarea id="siteSettingsExport" readonly rows="12"></textarea>
+            </label>
+            <label>
+              data/images.json
+              <textarea id="publishedImagesExport" readonly rows="12"></textarea>
+            </label>
+          </div>
+          <p class="loading-note" id="publishStatus"></p>
         </section>
 
         <section class="owner-card">

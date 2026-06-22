@@ -7,6 +7,7 @@ Version 1 is deliberately simple and review-first:
 - Static HTML, CSS, JavaScript, and JSON
 - Leaflet.js with OpenStreetMap tiles
 - Image data in `data/images.json`
+- Public homepage/game settings in `data/site_settings.json`
 - Browser-only pending submissions, approvals, owner controls, and question sets
 - Deployable on GitHub Pages with no backend
 
@@ -18,11 +19,12 @@ chronoscope/
   admin.html
   style.css
   script.js
-  data/
-    images.json
-    pending_submissions.json
-  assets/
-    images/
+	  data/
+	    images.json
+	    site_settings.json
+	    pending_submissions.json
+	  assets/
+	    images/
   README.md
 ```
 
@@ -116,7 +118,18 @@ The Owner Repair Panel includes local controls for:
 - Whether locally approved images appear in owner previews.
 - Daily image order for a stable same-day game.
 
-These controls are saved in the browser. They are useful for testing and curation, but they do not change the public GitHub Pages site until you copy approved entries into the repository.
+These controls are saved in the browser first. They are useful for testing and curation, but they do not change the public GitHub Pages site until you copy the exported records into the repository.
+
+To publish owner changes for every visitor:
+
+1. Open the Owner Repair Panel.
+2. Use **Publish Changes > Copy Site Settings** and paste the result into `data/site_settings.json`.
+3. Use **Publish Changes > Copy Game Images** and paste the result into `data/images.json`.
+4. If any image path begins with `assets/images/`, upload that image file into `assets/images/`.
+5. Commit the changed files on GitHub.
+6. Wait for GitHub Pages to redeploy, usually one to five minutes.
+
+If a change appears only on your computer, it is still only in your browser's `localStorage`; it has not been committed to GitHub yet.
 
 ## Question Sets
 
@@ -129,7 +142,7 @@ Question sets are owner-created groups of image IDs. In the Owner Repair Panel y
 - Copy the active set JSON.
 - Copy the active set's image entries as `images.json`-ready JSON.
 
-To publish a curated set in Version 1, copy the active set's image entries and replace or edit `data/images.json`.
+To publish a curated set in Version 1, copy the active set's image entries and replace or edit `data/images.json`. Visitors can only play entries that exist in the published `data/images.json` file on GitHub Pages.
 
 ## Scoring
 
@@ -161,7 +174,7 @@ For a first deployment through the GitHub website:
 1. Create a new GitHub repository, for example `chronoscope`.
 2. Keep the repository public if you are using GitHub Free.
 3. Upload the contents of `outputs/history-photo-detective/` into the repository root. `index.html` must be at the top level.
-4. Commit the uploaded files.
+4. Commit the uploaded files, including the full `assets/` and `data/` folders.
 5. In the repository, open **Settings > Pages**.
 6. Under **Build and deployment**, choose **Deploy from a branch**.
 7. Select the `main` branch and the `/ (root)` folder.

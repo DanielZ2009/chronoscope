@@ -501,13 +501,17 @@ h3 {
 
 .archive-teaser figcaption span {
   display: block;
-  margin-bottom: 0.1rem;
-  color: var(--gold);
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 0.68rem;
-  font-weight: 850;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  margin-bottom: 0.18rem;
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.archive-teaser figcaption time {
+  display: block;
+  color: var(--muted-ink);
+  font-size: 0.82rem;
 }
 
 .round-bar {
@@ -719,6 +723,41 @@ h3 {
   border: 1px solid rgba(80, 65, 42, 0.32);
   border-radius: 8px;
   background: #d9d0b9;
+}
+
+.map-pin {
+  border: 0;
+  background: transparent;
+}
+
+.map-pin span {
+  position: relative;
+  display: block;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--paper-soft);
+  border-radius: 50% 50% 50% 0;
+  box-shadow: 0 6px 14px rgba(36, 28, 23, 0.3);
+  transform: rotate(-45deg);
+}
+
+.map-pin span::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--paper-soft);
+}
+
+.map-pin-guess span {
+  background: var(--gold);
+}
+
+.map-pin-answer span {
+  background: var(--burgundy);
 }
 
 .action-strip {
@@ -976,6 +1015,25 @@ textarea {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.95rem;
+}
+
+.publish-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.95rem;
+  margin-top: 1rem;
+}
+
+.publish-grid label {
+  display: grid;
+  gap: 0.45rem;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.publish-grid textarea {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
 }
 
 .checkbox-row {
@@ -1363,6 +1421,7 @@ textarea {
   .submission-form,
   .submission-fields,
   .owner-edit-grid,
+  .publish-grid,
   .image-picker {
     grid-template-columns: 1fr;
   }

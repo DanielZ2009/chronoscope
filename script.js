@@ -12,6 +12,7 @@
 */
 
 const IMAGE_DATA_URL = "data/images.json";
+const SITE_SETTINGS_URL = "data/site_settings.json";
 const PENDING_STORAGE_KEY = "historyImageDetective.pendingSubmissions.v1";
 const APPROVED_STORAGE_KEY = "historyImageDetective.approvedImages.v1";
 const REJECTED_STORAGE_KEY = "historyImageDetective.rejectedSubmissions.v1";
@@ -43,6 +44,23 @@ const LEGACY_HOME_IMAGES = [
   "assets/images/cairo_street_001.svg",
 ];
 const DEFAULT_HOME_IMAGE = DEFAULT_HOME_IMAGES[0];
+const DEFAULT_HOME_GALLERY = [
+  {
+    image: DEFAULT_HOME_IMAGES[0],
+    place: "Cairo, Egypt",
+    time: "c. 1910",
+  },
+  {
+    image: DEFAULT_HOME_IMAGES[1],
+    place: "Beijing, China",
+    time: "c. 1910",
+  },
+  {
+    image: DEFAULT_HOME_IMAGES[2],
+    place: "Mumbai, India",
+    time: "c. 1905",
+  },
+];
 
 const DEFAULT_OWNER_SETTINGS = {
   roundsPerGame: DEFAULT_ROUND_COUNT,
@@ -51,6 +69,7 @@ const DEFAULT_OWNER_SETTINGS = {
   randomizeRounds: true,
   homeImage: DEFAULT_HOME_IMAGE,
   homeImages: DEFAULT_HOME_IMAGES,
+  homeGallery: DEFAULT_HOME_GALLERY,
 };
 
 const OWNER_APPROVED_SET_ID = "owner_approved_questions";
@@ -71,6 +90,7 @@ const state = {
   submissionMarker: null,
   pendingSubmissionLatLng: null,
   confirmedSubmissionLatLng: null,
+  publicSettings: DEFAULT_OWNER_SETTINGS,
 };
 
 const adminState = {
@@ -106,8 +126,9 @@ async function initMainPage() {
   applyHashRoute();
   window.addEventListener("hashchange", applyHashRoute);
 
+  await loadSiteSettings();
   await loadImageData();
-  applyHomeImage();
+  applyHomeGallery();
 }
 
 function bindNavigation() {
@@ -139,13 +160,28 @@ function showView(viewName) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function applyHomeImage() {
+function applyHomeGallery() {
   const settings = readOwnerSettings();
-  const images = resolveHomeImages(settings);
+  const gallery = resolveHomeGallery(settings);
   ["#homeImageOne", "#homeImageTwo", "#homeImageThree"].forEach((selector, index) => {
     const image = $(selector);
     if (image) {
-      image.src = safeImageUrl(images[index] || DEFAULT_HOME_IMAGES[index]);
+      image.src = safeImageUrl(gallery[index]?.image || DEFAULT_HOME_IMAGES[index]);
+    }
+  });
+
+  [
+    ["#homePlaceOne", "#homeTimeOne"],
+    ["#homePlaceTwo", "#homeTimeTwo"],
+    ["#homePlaceThree", "#homeTimeThree"],
+  ].forEach(([placeSelector, timeSelector], index) => {
+    const place = $(placeSelector);
+    const time = $(timeSelector);
+    if (place) {
+      place.textContent = gallery[index]?.place || DEFAULT_HOME_GALLERY[index].place;
+    }
+    if (time) {
+      time.textContent = gallery[index]?.time || DEFAULT_HOME_GALLERY[index].time;
     }
   });
 }
@@ -164,6 +200,20 @@ async function fetchImageData() {
   }
 
   return response.json();
+}
+
+async function loadSiteSettings() {
+  try {
+    const response = await fetch(SITE_SETTINGS_URL, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`Could not load ${SITE_SETTINGS_URL}`);
+    }
+
+    state.publicSettings = normalizeOwnerSettings(await response.json());
+  } catch (error) {
+    state.publicSettings = normalizeOwnerSettings(DEFAULT_OWNER_SETTINGS);
+    console.warn(error);
+  }
 }
 
 // This is the only public data load for the game. On GitHub Pages this fetches
@@ -382,6 +432,29 @@ function initMap() {
   state.map.on("click", handleMapClick);
 }
 
+function createMapPinIcon(type) {
+  if (typeof L === "undefined") {
+    return undefined;
+  }
+
+  return L.divIcon({
+    className: `map-pin map-pin-${type}`,
+    html: "<span></span>",
+    iconSize: [26, 34],
+    iconAnchor: [13, 32],
+    popupAnchor: [0, -28],
+  });
+}
+
+function getRevealMaxZoom(distanceKm) {
+  if (distanceKm < 1) return 15;
+  if (distanceKm < 5) return 13;
+  if (distanceKm < 25) return 11;
+  if (distanceKm < 100) return 9;
+  if (distanceKm < 500) return 7;
+  return 6;
+}
+
 function loadRound() {
   const round = getCurrentRound();
   if (!round) {
@@ -400,8 +473,6 @@ function loadRound() {
   $("#imageImage").src = round.image;
   $("#imageImage").alt = "Archival image for this round";
   $("#imageCaption").textContent = "Archive image. Source details appear after the guess.";
-  $("#caseNote").textContent =
-    round.clue || "Read the image closely: materials, landscape, technology, and urban form all leave traces.";
   $("#mapStatus").textContent = "No location selected";
   $("#submitGuess").disabled = true;
   $("#submitGuess").hidden = false;
@@ -428,7 +499,9 @@ function handleMapClick(event) {
   if (state.guessMarker) {
     state.guessMarker.setLatLng(event.latlng);
   } else {
-    state.guessMarker = L.marker(event.latlng).addTo(state.map);
+    state.guessMarker = L.marker(event.latlng, {
+      icon: createMapPinIcon("guess"),
+    }).addTo(state.map);
   }
 
   $("#submitGuess").disabled = false;
@@ -495,7 +568,12 @@ function revealRound(result) {
 
   if (state.map) {
     const correctLatLng = [result.actualLat, result.actualLng];
-    state.correctMarker = L.marker(correctLatLng).addTo(state.map).bindPopup("Correct location");
+    if (state.guessMarker) {
+      state.guessMarker.setIcon(createMapPinIcon("guess")).bindPopup("Your guess");
+    }
+    state.correctMarker = L.marker(correctLatLng, {
+      icon: createMapPinIcon("answer"),
+    }).addTo(state.map).bindPopup("Correct location");
     state.answerLine = L.polyline(
       [
         [result.guessedLat, result.guessedLng],
@@ -505,8 +583,8 @@ function revealRound(result) {
     ).addTo(state.map);
 
     state.map.fitBounds(state.answerLine.getBounds(), {
-      padding: [35, 35],
-      maxZoom: 6,
+      padding: [54, 54],
+      maxZoom: getRevealMaxZoom(result.distanceKm),
     });
   }
 
@@ -535,6 +613,7 @@ function revealRound(result) {
       <h4>Historical Record</h4>
       <p>${escapeHtml(result.explanation || "This entry is awaiting a fuller historical note after source verification.")}</p>
     </div>
+    <p class="source-line">Gold pin: your guess | Burgundy pin: answer</p>
     <p class="source-line">Source: ${escapeHtml(result.source || "Not provided")} | Rights: ${escapeHtml(result.rights || "Not provided")}</p>
   `;
   $("#revealPanel").hidden = false;
@@ -838,6 +917,8 @@ async function openOwnerPanel() {
   $("#ownerGate").classList.remove("is-active");
   $("#ownerPanel").classList.add("is-active");
 
+  await loadSiteSettings();
+
   try {
     const images = await fetchImageData();
     adminState.staticImages = images.filter(isPlayableImage).map(normalizeImageEntry);
@@ -869,15 +950,17 @@ function bindAdminControls() {
 
   $("#ownerSettingsForm").addEventListener("submit", (event) => {
     event.preventDefault();
+    const homeGallery = [
+      buildHomeGalleryEntry(0, "One"),
+      buildHomeGalleryEntry(1, "Two"),
+      buildHomeGalleryEntry(2, "Three"),
+    ];
     const settings = {
       roundsPerGame: clampNumber(Number($("#roundsPerGame").value), MIN_ROUNDS, MAX_ROUNDS, DEFAULT_ROUND_COUNT),
       activeSetId: $("#activeQuestionSet").value || "all",
-      homeImages: [
-        cleanString($("#homeImageSettingOne").value) || DEFAULT_HOME_IMAGES[0],
-        cleanString($("#homeImageSettingTwo").value) || DEFAULT_HOME_IMAGES[1],
-        cleanString($("#homeImageSettingThree").value) || DEFAULT_HOME_IMAGES[2],
-      ],
-      homeImage: cleanString($("#homeImageSettingOne").value) || DEFAULT_HOME_IMAGES[0],
+      homeImages: homeGallery.map((entry) => entry.image),
+      homeImage: homeGallery[0].image,
+      homeGallery,
       includeApprovedLocal: $("#includeApprovedLocal").checked,
       randomizeRounds: $("#randomizeRounds").checked,
     };
@@ -1033,10 +1116,21 @@ function bindAdminControls() {
     await copyText(JSON.stringify(images, null, 2));
     $("#questionSetStatus").textContent = "Active question set images copied. Paste these into data/images.json when ready.";
   });
+
+  $("#copySiteSettingsJson").addEventListener("click", async () => {
+    await copyText($("#siteSettingsExport").value);
+    $("#publishStatus").textContent = "Site settings copied. Paste this into data/site_settings.json and commit it.";
+  });
+
+  $("#copyPublishedImagesJson").addEventListener("click", async () => {
+    await copyText($("#publishedImagesExport").value);
+    $("#publishStatus").textContent = "Game images copied. Paste this into data/images.json and commit it.";
+  });
 }
 
 function renderAllAdmin() {
   renderOwnerSettings();
+  renderPublishingExports();
   renderAdminSubmissions();
   renderApprovedLibrary();
   renderQuestionSetList();
@@ -1048,12 +1142,19 @@ function renderOwnerSettings() {
   const sets = readQuestionSets();
   const activeSetExists = settings.activeSetId === "all" || sets.some((set) => set.id === settings.activeSetId);
   const activeSetId = activeSetExists ? settings.activeSetId : "all";
-  const homeImages = resolveHomeImages(settings);
+  const homeGallery = resolveHomeGallery(settings);
+  const homeImages = homeGallery.map((entry) => entry.image);
 
   $("#roundsPerGame").value = getConfiguredRoundCount({ ...settings, activeSetId });
   $("#homeImageSettingOne").value = homeImages[0];
   $("#homeImageSettingTwo").value = homeImages[1];
   $("#homeImageSettingThree").value = homeImages[2];
+  $("#homePlaceSettingOne").value = homeGallery[0].place;
+  $("#homePlaceSettingTwo").value = homeGallery[1].place;
+  $("#homePlaceSettingThree").value = homeGallery[2].place;
+  $("#homeTimeSettingOne").value = homeGallery[0].time;
+  $("#homeTimeSettingTwo").value = homeGallery[1].time;
+  $("#homeTimeSettingThree").value = homeGallery[2].time;
   $("#includeApprovedLocal").checked = Boolean(settings.includeApprovedLocal);
   $("#randomizeRounds").checked = settings.randomizeRounds !== false;
   $("#activeQuestionSet").innerHTML = [
@@ -1065,6 +1166,30 @@ function renderOwnerSettings() {
   const activeSet = getActiveQuestionSet(activeSetId);
   const images = getImagesForQuestionSet(activeSet.id);
   $("#ownerSettingsStatus").textContent = `${images.length} playable image${images.length === 1 ? "" : "s"} available in the active set.`;
+}
+
+function renderPublishingExports() {
+  const settings = readOwnerSettings();
+  const activeSet = getActiveQuestionSet(settings.activeSetId);
+  const images = getImagesForQuestionSet(activeSet.id);
+  const publicSettings = {
+    roundsPerGame: getConfiguredRoundCount(settings),
+    activeSetId: "all",
+    randomizeRounds: settings.randomizeRounds !== false,
+    homeGallery: resolveHomeGallery(settings),
+  };
+
+  $("#siteSettingsExport").value = JSON.stringify(publicSettings, null, 2);
+  $("#publishedImagesExport").value = JSON.stringify(images, null, 2);
+}
+
+function buildHomeGalleryEntry(index, suffix) {
+  const fallback = DEFAULT_HOME_GALLERY[index];
+  return {
+    image: cleanString($(`#homeImageSetting${suffix}`).value) || fallback.image,
+    place: cleanString($(`#homePlaceSetting${suffix}`).value) || fallback.place,
+    time: cleanString($(`#homeTimeSetting${suffix}`).value) || fallback.time,
+  };
 }
 
 function renderAdminSubmissions() {
@@ -1565,36 +1690,55 @@ function getActiveQuestionSet(setId) {
 
 function readOwnerSettings() {
   const stored = readJsonStorage(OWNER_SETTINGS_STORAGE_KEY, {});
-  const merged = {
+  return normalizeOwnerSettings({
     ...DEFAULT_OWNER_SETTINGS,
+    ...state.publicSettings,
     ...stored,
-  };
-  if (!Array.isArray(stored.homeImages)) {
-    delete merged.homeImages;
-  }
-  const homeImages = resolveHomeImages(merged);
-  return {
-    ...merged,
-    homeImages,
-    homeImage: homeImages[0],
-    roundsPerGame: getConfiguredRoundCount(stored),
-  };
+  });
 }
 
 function writeOwnerSettings(settings) {
-  const homeImages = resolveHomeImages(settings);
-  const nextSettings = {
+  writeJsonStorage(OWNER_SETTINGS_STORAGE_KEY, normalizeOwnerSettings(settings));
+}
+
+function normalizeOwnerSettings(settings = {}) {
+  const merged = {
     ...DEFAULT_OWNER_SETTINGS,
     ...settings,
+  };
+  const homeGallery = resolveHomeGallery(merged);
+  const homeImages = homeGallery.map((entry) => entry.image);
+
+  return {
+    ...merged,
+    activeSetId: cleanString(merged.activeSetId) || "all",
+    includeApprovedLocal: Boolean(merged.includeApprovedLocal),
+    randomizeRounds: merged.randomizeRounds !== false,
+    homeGallery,
     homeImages,
     homeImage: homeImages[0],
-    roundsPerGame: getConfiguredRoundCount(settings),
+    roundsPerGame: getConfiguredRoundCount(merged),
   };
-  writeJsonStorage(OWNER_SETTINGS_STORAGE_KEY, nextSettings);
+}
+
+function resolveHomeGallery(settings = {}) {
+  const configured = Array.isArray(settings.homeGallery) ? settings.homeGallery : [];
+  const images = resolveHomeImages(settings);
+
+  return DEFAULT_HOME_GALLERY.map((fallback, index) => {
+    const entry = configured[index] || {};
+    return {
+      image: cleanString(entry.image) || images[index] || fallback.image,
+      place: cleanString(entry.place) || fallback.place,
+      time: cleanString(entry.time) || fallback.time,
+    };
+  });
 }
 
 function resolveHomeImages(settings = {}) {
   const configured = Array.isArray(settings.homeImages) ? settings.homeImages : [];
+  const gallery = Array.isArray(settings.homeGallery) ? settings.homeGallery : [];
+  const galleryImages = gallery.map((entry) => cleanString(entry?.image));
   const legacyFirst = cleanString(settings.homeImage);
   const configuredClean = configured.map(cleanString);
   const isLegacyDefault =
@@ -1605,6 +1749,9 @@ function resolveHomeImages(settings = {}) {
   }
 
   return DEFAULT_HOME_IMAGES.map((fallback, index) => {
+    if (galleryImages[index]) {
+      return galleryImages[index];
+    }
     if (cleanString(configured[index])) {
       return cleanString(configured[index]);
     }

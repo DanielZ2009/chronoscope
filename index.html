@@ -11,9 +11,9 @@
 
     <link rel="icon" href="assets/chronoscope-wax-seal-256.png" type="image/png" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <link rel="stylesheet" href="style.css?v=chronoscope-2" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-3" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    <script src="script.js?v=chronoscope-2" defer></script>
+    <script src="script.js?v=chronoscope-3" defer></script>
   </head>
   <body data-page="main">
     <header class="site-header">
@@ -65,33 +65,33 @@
               <img
                 id="homeImageOne"
                 src="assets/images/cairo_street_001.svg"
-                alt="Featured archival image showing urban life"
+                alt="Featured archival image"
               />
               <figcaption>
-                <span>Urban Life</span>
-                Streets, signs, markets, daily movement
+                <span id="homePlaceOne">Cairo, Egypt</span>
+                <time id="homeTimeOne">c. 1910</time>
               </figcaption>
             </figure>
             <figure class="archive-teaser archive-secondary archive-secondary-top">
               <img
                 id="homeImageTwo"
                 src="assets/images/beijing_church_001.svg"
-                alt="Featured archival image showing religious architecture"
+                alt="Featured archival image"
               />
               <figcaption>
-                <span>Religion &amp; Architecture</span>
-                Sacred buildings, civic fabric, material clues
+                <span id="homePlaceTwo">Beijing, China</span>
+                <time id="homeTimeTwo">c. 1910</time>
               </figcaption>
             </figure>
             <figure class="archive-teaser archive-secondary archive-secondary-bottom">
               <img
                 id="homeImageThree"
                 src="assets/images/mumbai_station_001.svg"
-                alt="Featured archival image showing transportation infrastructure"
+                alt="Featured archival image"
               />
               <figcaption>
-                <span>Transportation</span>
-                Railways, platforms, routes, modern speed
+                <span id="homePlaceThree">Mumbai, India</span>
+                <time id="homeTimeThree">c. 1905</time>
               </figcaption>
             </figure>
           </div>
@@ -152,10 +152,6 @@
               <img id="imageImage" src="" alt="Historical image for this round" />
               <figcaption id="imageCaption">Study the image, choose a date, and place it on the map.</figcaption>
             </figure>
-            <section class="case-note" aria-label="Case note">
-              <p class="kicker">Case Note</p>
-              <p id="caseNote">Read the image closely: materials, landscape, technology, and urban form all leave traces.</p>
-            </section>
           </article>
 
           <section class="detective-panel" aria-label="Guess panel">
@@ -255,7 +251,7 @@
               <span id="submissionMapStatus" class="field-note">No map point selected yet.</span>
             </label>
             <label class="full-span">
-              Case Note <span class="optional-label">optional</span>
+              Optional owner note <span class="optional-label">optional</span>
               <textarea name="clue" rows="3"></textarea>
             </label>
             <label class="full-span">
