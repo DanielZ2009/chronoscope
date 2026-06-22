@@ -1,0 +1,1883 @@
+"use strict";
+
+/*
+  Chronoscope is designed for GitHub Pages: every file is static, and no backend
+  is needed. Add real archive images to assets/images, then add entries to
+  data/images.json using the same fields as the samples.
+
+  Deploy by publishing this folder as the GitHub Pages root or docs folder; no
+  build step is required. Because static sites cannot write files, the owner
+  panel stores approvals, question sets, and controls in localStorage and helps
+  the owner copy verified JSON into the real data files.
+*/
+
+const IMAGE_DATA_URL = "data/images.json";
+const PENDING_STORAGE_KEY = "historyImageDetective.pendingSubmissions.v1";
+const APPROVED_STORAGE_KEY = "historyImageDetective.approvedImages.v1";
+const REJECTED_STORAGE_KEY = "historyImageDetective.rejectedSubmissions.v1";
+const QUESTION_SETS_STORAGE_KEY = "historyImageDetective.questionSets.v1";
+const OWNER_SETTINGS_STORAGE_KEY = "historyImageDetective.ownerSettings.v1";
+const OWNER_ACCESS_STORAGE_KEY = "historyImageDetective.ownerAccess.v1";
+
+// Change this before publishing if you want a different casual owner gate.
+// This is not true security; a backend is required for real private admin auth.
+const OWNER_REPAIR_CODE = "chronoscope-owner";
+
+const DEFAULT_ROUND_COUNT = 5;
+const MIN_ROUNDS = 1;
+const MAX_ROUNDS = 20;
+const MAX_LOCATION_SCORE = 2500;
+const MAX_TIME_SCORE = 2500;
+const MAX_ROUND_SCORE = MAX_LOCATION_SCORE + MAX_TIME_SCORE;
+const YEAR_MIN = -3000;
+const YEAR_MAX = 2000;
+const DEFAULT_YEAR = 1900;
+const DEFAULT_HOME_IMAGES = [
+  "assets/images/cairo_street_001.svg",
+  "assets/images/beijing_church_001.svg",
+  "assets/images/mumbai_station_001.svg",
+];
+const LEGACY_HOME_IMAGES = [
+  "assets/images/beijing_church_001.svg",
+  "assets/images/istanbul_bridge_001.svg",
+  "assets/images/cairo_street_001.svg",
+];
+const DEFAULT_HOME_IMAGE = DEFAULT_HOME_IMAGES[0];
+
+const DEFAULT_OWNER_SETTINGS = {
+  roundsPerGame: DEFAULT_ROUND_COUNT,
+  activeSetId: "all",
+  includeApprovedLocal: false,
+  randomizeRounds: true,
+  homeImage: DEFAULT_HOME_IMAGE,
+  homeImages: DEFAULT_HOME_IMAGES,
+};
+
+const OWNER_APPROVED_SET_ID = "owner_approved_questions";
+
+const state = {
+  staticImages: [],
+  images: [],
+  rounds: [],
+  results: [],
+  currentRoundIndex: 0,
+  guess: null,
+  isRevealed: false,
+  map: null,
+  guessMarker: null,
+  correctMarker: null,
+  answerLine: null,
+  submissionMap: null,
+  submissionMarker: null,
+  pendingSubmissionLatLng: null,
+  confirmedSubmissionLatLng: null,
+};
+
+const adminState = {
+  staticImages: [],
+  bound: false,
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+  if (document.body.dataset.page === "admin") {
+    initAdminPage();
+    return;
+  }
+
+  initMainPage();
+});
+
+function $(selector, scope = document) {
+  return scope.querySelector(selector);
+}
+
+function $$(selector, scope = document) {
+  return Array.from(scope.querySelectorAll(selector));
+}
+
+async function initMainPage() {
+  bindNavigation();
+  bindGameControls();
+  bindSubmissionLocationControls();
+  bindSubmissionForm();
+  bindCopyButtons();
+  bindRepairAccess();
+
+  applyHashRoute();
+  window.addEventListener("hashchange", applyHashRoute);
+
+  await loadImageData();
+  applyHomeImage();
+}
+
+function bindNavigation() {
+  $$("[data-view-target]").forEach((control) => {
+    control.addEventListener("click", (event) => {
+      event.preventDefault();
+      showView(control.dataset.viewTarget);
+    });
+  });
+
+  $$("[data-action='start-game']").forEach((control) => {
+    control.addEventListener("click", () => startGame());
+  });
+}
+
+function showView(viewName) {
+  $$("[data-view]").forEach((screen) => {
+    screen.classList.toggle("is-active", screen.dataset.view === viewName);
+  });
+
+  if (viewName === "game" && state.map) {
+    setTimeout(() => state.map.invalidateSize(), 80);
+  }
+
+  if (viewName === "submit") {
+    setTimeout(() => initSubmissionMap(), 80);
+  }
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function applyHomeImage() {
+  const settings = readOwnerSettings();
+  const images = resolveHomeImages(settings);
+  ["#homeImageOne", "#homeImageTwo", "#homeImageThree"].forEach((selector, index) => {
+    const image = $(selector);
+    if (image) {
+      image.src = safeImageUrl(images[index] || DEFAULT_HOME_IMAGES[index]);
+    }
+  });
+}
+
+function applyHashRoute() {
+  const viewName = location.hash.replace("#", "");
+  if (["home", "submit", "about"].includes(viewName)) {
+    showView(viewName);
+  }
+}
+
+async function fetchImageData() {
+  const response = await fetch(IMAGE_DATA_URL, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Could not load ${IMAGE_DATA_URL}`);
+  }
+
+  return response.json();
+}
+
+// This is the only public data load for the game. On GitHub Pages this fetches
+// static JSON, then optionally applies owner-local settings from this browser.
+async function loadImageData() {
+  const status = $("#dataStatus");
+
+  try {
+    const images = await fetchImageData();
+    state.staticImages = images.filter(isPlayableImage).map(normalizeImageEntry);
+    state.images = resolveGameImagePool(state.staticImages);
+
+    if (status) {
+      status.textContent = "";
+    }
+  } catch (error) {
+    if (status) {
+      status.textContent = "Image data could not load.";
+    }
+    console.error(error);
+  }
+}
+
+function isPlayableImage(image) {
+  return (
+    image &&
+    typeof image.title === "string" &&
+    typeof image.image === "string" &&
+    Number.isFinite(Number(image.lat)) &&
+    Number.isFinite(Number(image.lng)) &&
+    Number.isFinite(Number(image.year))
+  );
+}
+
+function normalizeImageEntry(entry) {
+  const year = Number(entry.year);
+  const title = cleanString(entry.title) || "Untitled image";
+
+  return {
+    id: cleanString(entry.id) || `${slugify(title)}_${Date.now()}`,
+    title,
+    image: cleanString(entry.image),
+    locationName: cleanString(entry.locationName),
+    lat: Number(entry.lat),
+    lng: Number(entry.lng),
+    year,
+    yearRange: cleanString(entry.yearRange) || `c. ${year}`,
+    clue: cleanString(entry.clue),
+    explanation: cleanString(entry.explanation),
+    source: cleanString(entry.source),
+    rights: cleanString(entry.rights),
+    difficulty: cleanString(entry.difficulty) || "medium",
+    tags: Array.isArray(entry.tags) ? entry.tags.map(cleanString).filter(Boolean) : [],
+    submitter: cleanString(entry.submitter),
+    submittedAt: cleanString(entry.submittedAt),
+    approvedAt: cleanString(entry.approvedAt),
+  };
+}
+
+function resolveGameImagePool(staticImages) {
+  const settings = readOwnerSettings();
+  const activeSet = getActiveQuestionSet(settings.activeSetId);
+  const includeApproved = settings.includeApprovedLocal || activeSet.id !== "all";
+  const sourceImages = includeApproved
+    ? mergeImageLists(staticImages, readApprovedImages())
+    : [...staticImages];
+
+  if (activeSet.id === "all") {
+    return sourceImages.filter(isPlayableImage);
+  }
+
+  const allowedIds = new Set(activeSet.imageIds || []);
+  return sourceImages.filter((image) => allowedIds.has(image.id) && isPlayableImage(image));
+}
+
+function bindGameControls() {
+  $("#yearInput").min = YEAR_MIN;
+  $("#yearInput").max = YEAR_MAX;
+  setYearGuess(DEFAULT_YEAR);
+
+  $("#yearInput").addEventListener("input", (event) => setYearGuess(event.target.value));
+  bindTimelineControl();
+  $("#submitGuess").addEventListener("click", submitGuess);
+  $("#nextRound").addEventListener("click", advanceRound);
+}
+
+function setYearGuess(value) {
+  const numericValue = Number.parseInt(value, 10);
+  const safeYear = Number.isFinite(numericValue)
+    ? Math.min(YEAR_MAX, Math.max(YEAR_MIN, numericValue))
+    : DEFAULT_YEAR;
+  const playableYear = safeYear === 0 ? 1 : safeYear;
+
+  $("#yearInput").value = playableYear;
+  $("#yearDisplay").textContent = formatYearLabel(playableYear);
+  updateTimelineMarker(playableYear);
+}
+
+function bindTimelineControl() {
+  const timeline = $("#timeTimeline");
+  if (!timeline) {
+    return;
+  }
+
+  const updateFromPointer = (event) => {
+    const rect = timeline.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    setYearGuess(yearFromTimelineRatio(ratio));
+  };
+
+  timeline.addEventListener("pointerdown", (event) => {
+    timeline.setPointerCapture(event.pointerId);
+    updateFromPointer(event);
+  });
+
+  timeline.addEventListener("pointermove", (event) => {
+    if (event.buttons === 1) {
+      updateFromPointer(event);
+    }
+  });
+
+  timeline.addEventListener("keydown", (event) => {
+    const current = Number($("#yearInput").value) || DEFAULT_YEAR;
+    const step = event.shiftKey ? 100 : 25;
+
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setYearGuess(current - step);
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setYearGuess(current + step);
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      setYearGuess(YEAR_MIN);
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      setYearGuess(YEAR_MAX);
+    }
+  });
+}
+
+function yearFromTimelineRatio(ratio) {
+  const safeRatio = Math.min(1, Math.max(0, ratio));
+  const year = Math.round(YEAR_MIN + safeRatio * (YEAR_MAX - YEAR_MIN));
+  return year === 0 ? 1 : year;
+}
+
+function updateTimelineMarker(year) {
+  const marker = $("#timeMarker");
+  const timeline = $("#timeTimeline");
+  if (!marker || !timeline) {
+    return;
+  }
+
+  const ratio = (year - YEAR_MIN) / (YEAR_MAX - YEAR_MIN);
+  marker.style.left = `${Math.min(100, Math.max(0, ratio * 100))}%`;
+  timeline.setAttribute("aria-valuenow", String(year));
+  timeline.setAttribute("aria-valuetext", formatYearLabel(year));
+}
+
+function startGame() {
+  state.images = resolveGameImagePool(state.staticImages);
+
+  if (state.images.length === 0) {
+    const status = $("#dataStatus");
+    if (status) {
+      status.textContent = "No playable images are available.";
+    }
+    showView("home");
+    return;
+  }
+
+  const settings = readOwnerSettings();
+  const roundCount = Math.min(getConfiguredRoundCount(settings), state.images.length);
+  // TODO: Expand deterministic daily challenge mode with past-day archives and shareable daily IDs.
+  const pool = settings.randomizeRounds ? seededShuffle([...state.images], getDailySeedKey()) : [...state.images];
+
+  state.rounds = pool.slice(0, roundCount);
+  state.results = [];
+  state.currentRoundIndex = 0;
+  state.guess = null;
+  state.isRevealed = false;
+
+  showView("game");
+
+  requestAnimationFrame(() => {
+    initMap();
+    loadRound();
+  });
+}
+
+function initMap() {
+  if (state.map) {
+    state.map.invalidateSize();
+    return;
+  }
+
+  if (typeof L === "undefined") {
+    $("#mapStatus").textContent = "Leaflet did not load. Check your network connection for the CDN files.";
+    return;
+  }
+
+  state.map = L.map("guessMap", {
+    minZoom: 2,
+    worldCopyJump: true,
+  }).setView([22, 12], 2);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(state.map);
+
+  state.map.on("click", handleMapClick);
+}
+
+function loadRound() {
+  const round = getCurrentRound();
+  if (!round) {
+    showResults();
+    return;
+  }
+
+  state.guess = null;
+  state.isRevealed = false;
+  clearMapLayers();
+  setYearGuess(DEFAULT_YEAR);
+
+  $("#roundTitle").textContent = `Archive Image ${state.currentRoundIndex + 1}`;
+  $("#roundCounter").textContent = `Round ${state.currentRoundIndex + 1} of ${state.rounds.length}`;
+  $("#scorePreview").textContent = `Score ${formatNumber(getTotalScore())} / ${formatNumber(state.rounds.length * MAX_ROUND_SCORE)}`;
+  $("#imageImage").src = round.image;
+  $("#imageImage").alt = "Archival image for this round";
+  $("#imageCaption").textContent = "Archive image. Source details appear after the guess.";
+  $("#caseNote").textContent =
+    round.clue || "Read the image closely: materials, landscape, technology, and urban form all leave traces.";
+  $("#mapStatus").textContent = "No location selected";
+  $("#submitGuess").disabled = true;
+  $("#submitGuess").hidden = false;
+  $("#nextRound").hidden = true;
+  $("#revealPanel").hidden = true;
+  $("#revealPanel").innerHTML = "";
+
+  if (state.map) {
+    state.map.setView([22, 12], 2);
+    setTimeout(() => state.map.invalidateSize(), 80);
+  }
+}
+
+function handleMapClick(event) {
+  if (!state.map || state.isRevealed) {
+    return;
+  }
+
+  state.guess = {
+    lat: event.latlng.lat,
+    lng: event.latlng.lng,
+  };
+
+  if (state.guessMarker) {
+    state.guessMarker.setLatLng(event.latlng);
+  } else {
+    state.guessMarker = L.marker(event.latlng).addTo(state.map);
+  }
+
+  $("#submitGuess").disabled = false;
+  $("#mapStatus").textContent = `Location selected: ${formatCoordinate(state.guess.lat)}, ${formatCoordinate(state.guess.lng)}`;
+}
+
+function submitGuess() {
+  const round = getCurrentRound();
+  if (!round || !state.guess) {
+    $("#mapStatus").textContent = "Select a location on the map first.";
+    return;
+  }
+
+  const guessedYear = Number($("#yearInput").value);
+  const result = scoreRound(round, state.guess, guessedYear);
+  state.results.push(result);
+  revealRound(result);
+}
+
+/*
+  Scoring:
+  - Location uses the Haversine formula to calculate distance in kilometers.
+  - Time uses absolute year difference.
+  - Both scores decay exponentially so close guesses score high and distant
+    guesses taper toward zero without needing hard cutoffs.
+*/
+function scoreRound(round, guess, guessedYear) {
+  const distanceKm = haversineDistance(guess.lat, guess.lng, Number(round.lat), Number(round.lng));
+  const yearError = Math.abs(guessedYear - Number(round.year));
+  const locationScore = Math.max(0, Math.round(MAX_LOCATION_SCORE * Math.exp(-distanceKm / 1500)));
+  const timeScore = Math.max(0, Math.round(MAX_TIME_SCORE * Math.exp(-yearError / 30)));
+  const roundScore = locationScore + timeScore;
+
+  return {
+    roundNumber: state.currentRoundIndex + 1,
+    imageId: round.id,
+    title: round.title,
+    image: round.image,
+    locationName: round.locationName,
+    actualLat: Number(round.lat),
+    actualLng: Number(round.lng),
+    guessedLat: guess.lat,
+    guessedLng: guess.lng,
+    actualYear: Number(round.year),
+    yearRange: round.yearRange,
+    guessedYear,
+    distanceKm,
+    yearError,
+    locationScore,
+    timeScore,
+    roundScore,
+    explanation: round.explanation,
+    source: round.source,
+    rights: round.rights,
+  };
+}
+
+function revealRound(result) {
+  state.isRevealed = true;
+  $("#submitGuess").hidden = true;
+  $("#nextRound").hidden = false;
+  $("#roundTitle").textContent = result.title;
+  $("#scorePreview").textContent = `Score ${formatNumber(getTotalScore())} / ${formatNumber(state.rounds.length * MAX_ROUND_SCORE)}`;
+
+  if (state.map) {
+    const correctLatLng = [result.actualLat, result.actualLng];
+    state.correctMarker = L.marker(correctLatLng).addTo(state.map).bindPopup("Correct location");
+    state.answerLine = L.polyline(
+      [
+        [result.guessedLat, result.guessedLng],
+        correctLatLng,
+      ],
+      { color: "#8F241F", weight: 3, opacity: 0.82 }
+    ).addTo(state.map);
+
+    state.map.fitBounds(state.answerLine.getBounds(), {
+      padding: [35, 35],
+      maxZoom: 6,
+    });
+  }
+
+  $("#revealPanel").innerHTML = `
+    <p class="kicker">The Record</p>
+    <h3>${escapeHtml(result.locationName)} - ${escapeHtml(result.yearRange || String(result.actualYear))}</h3>
+    <p class="answer-line">
+      Your location error was <strong>${formatDistance(result.distanceKm)}</strong>.
+      Your time error was <strong>${formatNumber(result.yearError)} years</strong>.
+    </p>
+    <div class="score-grid">
+      <div class="score-tile">
+        <span>Location score</span>
+        <strong>${formatNumber(result.locationScore)} / ${formatNumber(MAX_LOCATION_SCORE)}</strong>
+      </div>
+      <div class="score-tile">
+        <span>Time score</span>
+        <strong>${formatNumber(result.timeScore)} / ${formatNumber(MAX_TIME_SCORE)}</strong>
+      </div>
+      <div class="score-tile">
+        <span>Round score</span>
+        <strong>${formatNumber(result.roundScore)} / ${formatNumber(MAX_ROUND_SCORE)}</strong>
+      </div>
+    </div>
+    <div class="historical-record">
+      <h4>Historical Record</h4>
+      <p>${escapeHtml(result.explanation || "This entry is awaiting a fuller historical note after source verification.")}</p>
+    </div>
+    <p class="source-line">Source: ${escapeHtml(result.source || "Not provided")} | Rights: ${escapeHtml(result.rights || "Not provided")}</p>
+  `;
+  $("#revealPanel").hidden = false;
+}
+
+function advanceRound() {
+  state.currentRoundIndex += 1;
+  if (state.currentRoundIndex >= state.rounds.length) {
+    showResults();
+    return;
+  }
+
+  loadRound();
+}
+
+function showResults() {
+  const totalScore = getTotalScore();
+  const maxScore = state.rounds.length * MAX_ROUND_SCORE;
+  const rating = ratingForScore(totalScore, maxScore);
+
+  $("#finalScore").textContent = `${formatNumber(totalScore)} / ${formatNumber(maxScore)}`;
+  $("#ratingTitle").textContent = rating;
+  $("#roundBreakdown").innerHTML = renderRoundTable(state.results);
+
+  const shareText = [
+    "Chronoscope",
+    `${formatNumber(totalScore)} / ${formatNumber(maxScore)}`,
+    "I placed images in space and time.",
+    "Can you read the traces?",
+  ].join("\n");
+
+  $("#shareText").value = shareText;
+  $("#copyResultStatus").textContent = "";
+  showView("results");
+}
+
+function renderRoundTable(results) {
+  if (results.length === 0) {
+    return "<p>No completed rounds yet.</p>";
+  }
+
+  const rows = results
+    .map(
+      (result) => `
+        <tr>
+          <td>${result.roundNumber}</td>
+          <td>${escapeHtml(result.locationName)}<br><span class="answer-line">${escapeHtml(result.yearRange || String(result.actualYear))}</span></td>
+          <td>${formatDistance(result.distanceKm)}</td>
+          <td>${formatNumber(result.yearError)} years</td>
+          <td>${formatNumber(result.locationScore)}</td>
+          <td>${formatNumber(result.timeScore)}</td>
+          <td><strong>${formatNumber(result.roundScore)}</strong></td>
+        </tr>
+      `
+    )
+    .join("");
+
+  return `
+    <table class="round-table">
+      <thead>
+        <tr>
+          <th>Round</th>
+          <th>Answer</th>
+          <th>Distance</th>
+          <th>Time</th>
+          <th>Loc.</th>
+          <th>Year</th>
+          <th>Total</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function bindSubmissionForm() {
+  const form = $("#submissionForm");
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const entry = buildSubmissionEntry(new FormData(form));
+    const pending = readPendingSubmissions();
+    pending.push(entry);
+    writePendingSubmissions(pending);
+
+    $("#generatedSubmission").value = JSON.stringify(entry, null, 2);
+    $("#submissionStatus").textContent = "Saved as a pending review record. Send this record to the site owner for verification.";
+  });
+
+  form.addEventListener("reset", () => {
+    $("#generatedSubmission").value = "";
+    $("#submissionStatus").textContent = "";
+    clearSubmissionLocation();
+  });
+}
+
+function bindSubmissionLocationControls() {
+  const confirmButton = $("#confirmSubmissionLocation");
+  const clearButton = $("#clearSubmissionLocation");
+  if (!confirmButton || !clearButton) {
+    return;
+  }
+
+  confirmButton.addEventListener("click", () => {
+    if (!state.pendingSubmissionLatLng) {
+      $("#submissionMapStatus").textContent = "Click a point on the map first.";
+      return;
+    }
+
+    state.confirmedSubmissionLatLng = { ...state.pendingSubmissionLatLng };
+    const latInput = $("#submissionForm [name='lat']");
+    const lngInput = $("#submissionForm [name='lng']");
+    latInput.value = state.confirmedSubmissionLatLng.lat.toFixed(5);
+    lngInput.value = state.confirmedSubmissionLatLng.lng.toFixed(5);
+    $("#submissionMapStatus").textContent = `Confirmed: ${formatCoordinate(state.confirmedSubmissionLatLng.lat)}, ${formatCoordinate(state.confirmedSubmissionLatLng.lng)}`;
+  });
+
+  clearButton.addEventListener("click", clearSubmissionLocation);
+}
+
+function initSubmissionMap() {
+  const mapElement = $("#submissionMap");
+  if (!mapElement || state.submissionMap) {
+    if (state.submissionMap) {
+      state.submissionMap.invalidateSize();
+    }
+    return;
+  }
+
+  if (typeof L === "undefined") {
+    $("#submissionMapStatus").textContent = "Leaflet did not load. Enter latitude and longitude manually.";
+    return;
+  }
+
+  state.submissionMap = L.map("submissionMap", {
+    minZoom: 2,
+    worldCopyJump: true,
+  }).setView([22, 12], 2);
+
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(state.submissionMap);
+
+  state.submissionMap.on("click", (event) => {
+    state.pendingSubmissionLatLng = {
+      lat: event.latlng.lat,
+      lng: event.latlng.lng,
+    };
+
+    if (state.submissionMarker) {
+      state.submissionMarker.setLatLng(event.latlng);
+    } else {
+      state.submissionMarker = L.marker(event.latlng).addTo(state.submissionMap);
+    }
+
+    $("#submissionMapStatus").textContent = `Selected: ${formatCoordinate(event.latlng.lat)}, ${formatCoordinate(event.latlng.lng)}. Confirm to record it.`;
+  });
+}
+
+function clearSubmissionLocation() {
+  state.pendingSubmissionLatLng = null;
+  state.confirmedSubmissionLatLng = null;
+
+  if (state.submissionMarker && state.submissionMap) {
+    state.submissionMap.removeLayer(state.submissionMarker);
+  }
+  state.submissionMarker = null;
+
+  const latInput = $("#submissionForm [name='lat']");
+  const lngInput = $("#submissionForm [name='lng']");
+  if (latInput && lngInput) {
+    latInput.value = "";
+    lngInput.value = "";
+  }
+
+  const status = $("#submissionMapStatus");
+  if (status) {
+    status.textContent = "No map point selected yet.";
+  }
+}
+
+function buildSubmissionEntry(formData) {
+  const title = cleanString(formData.get("title"));
+  const year = Number(formData.get("year"));
+  const idBase = slugify(title || "submitted-image");
+
+  return {
+    id: `${idBase}_${Date.now()}`,
+    title,
+    image: cleanString(formData.get("image")),
+    locationName: cleanString(formData.get("locationName")),
+    lat: Number(formData.get("lat")),
+    lng: Number(formData.get("lng")),
+    year,
+    yearRange: `c. ${year}`,
+    clue: cleanString(formData.get("clue")),
+    explanation: cleanString(formData.get("explanation")),
+    source: cleanString(formData.get("source")),
+    rights: cleanString(formData.get("rights")),
+    difficulty: "unreviewed",
+    tags: [],
+    submitter: cleanString(formData.get("submitter")),
+    submittedAt: new Date().toISOString(),
+  };
+}
+
+function bindCopyButtons() {
+  const copySubmission = $("#copySubmission");
+  if (copySubmission) {
+    copySubmission.addEventListener("click", async () => {
+      const text = $("#generatedSubmission").value.trim();
+      if (!text) {
+        $("#submissionStatus").textContent = "Submit a proposal first.";
+        return;
+      }
+      await copyText(text);
+      $("#submissionStatus").textContent = "Submission record copied.";
+    });
+  }
+
+  const copyResult = $("#copyResult");
+  if (copyResult) {
+    copyResult.addEventListener("click", async () => {
+      await copyText($("#shareText").value);
+      $("#copyResultStatus").textContent = "Result copied.";
+    });
+  }
+}
+
+function bindRepairAccess() {
+  const openButton = $("#openRepairAccess");
+  const closeButton = $("#closeRepairAccess");
+  const panel = $("#repairAccess");
+  const form = $("#repairAccessForm");
+  if (!openButton || !closeButton || !panel || !form) {
+    return;
+  }
+
+  openButton.addEventListener("click", () => {
+    panel.hidden = false;
+    $("#repairAccessStatus").textContent = "";
+    $("#repairAccessCode").value = "";
+    $("#repairAccessCode").focus();
+  });
+
+  closeButton.addEventListener("click", () => {
+    panel.hidden = true;
+  });
+
+  panel.addEventListener("click", (event) => {
+    if (event.target === panel) {
+      panel.hidden = true;
+    }
+  });
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const code = cleanString($("#repairAccessCode").value);
+    if (code !== OWNER_REPAIR_CODE) {
+      $("#repairAccessStatus").textContent = "Access code not recognized.";
+      return;
+    }
+
+    localStorage.setItem(OWNER_ACCESS_STORAGE_KEY, "true");
+    window.location.href = "admin.html#repair";
+  });
+}
+
+async function initAdminPage() {
+  bindOwnerGate();
+
+  if (hasOwnerAccess()) {
+    await openOwnerPanel();
+  }
+}
+
+function bindOwnerGate() {
+  const form = $("#ownerAccessForm");
+  if (form) {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const code = cleanString($("#ownerCode").value);
+
+      if (code !== OWNER_REPAIR_CODE) {
+        $("#ownerGateStatus").textContent = "Owner code not recognized.";
+        return;
+      }
+
+      localStorage.setItem(OWNER_ACCESS_STORAGE_KEY, "true");
+      $("#ownerCode").value = "";
+      await openOwnerPanel();
+    });
+  }
+}
+
+async function openOwnerPanel() {
+  $("#ownerGate").classList.remove("is-active");
+  $("#ownerPanel").classList.add("is-active");
+
+  try {
+    const images = await fetchImageData();
+    adminState.staticImages = images.filter(isPlayableImage).map(normalizeImageEntry);
+  } catch (error) {
+    adminState.staticImages = [];
+    console.error(error);
+  }
+
+  bindAdminControls();
+  renderAllAdmin();
+}
+
+function hasOwnerAccess() {
+  return localStorage.getItem(OWNER_ACCESS_STORAGE_KEY) === "true";
+}
+
+function bindAdminControls() {
+  if (adminState.bound) {
+    return;
+  }
+  adminState.bound = true;
+
+  $("#lockOwnerPanel").addEventListener("click", () => {
+    localStorage.removeItem(OWNER_ACCESS_STORAGE_KEY);
+    $("#ownerPanel").classList.remove("is-active");
+    $("#ownerGate").classList.add("is-active");
+    $("#ownerGateStatus").textContent = "Owner panel locked.";
+  });
+
+  $("#ownerSettingsForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const settings = {
+      roundsPerGame: clampNumber(Number($("#roundsPerGame").value), MIN_ROUNDS, MAX_ROUNDS, DEFAULT_ROUND_COUNT),
+      activeSetId: $("#activeQuestionSet").value || "all",
+      homeImages: [
+        cleanString($("#homeImageSettingOne").value) || DEFAULT_HOME_IMAGES[0],
+        cleanString($("#homeImageSettingTwo").value) || DEFAULT_HOME_IMAGES[1],
+        cleanString($("#homeImageSettingThree").value) || DEFAULT_HOME_IMAGES[2],
+      ],
+      homeImage: cleanString($("#homeImageSettingOne").value) || DEFAULT_HOME_IMAGES[0],
+      includeApprovedLocal: $("#includeApprovedLocal").checked,
+      randomizeRounds: $("#randomizeRounds").checked,
+    };
+
+    writeOwnerSettings(settings);
+    renderAllAdmin();
+    $("#ownerSettingsStatus").textContent = "Game controls saved for this browser.";
+  });
+
+  $("#refreshAdmin").addEventListener("click", renderAllAdmin);
+  $("#clearPending").addEventListener("click", () => {
+    const clearedCount = readPendingSubmissions().length;
+    writePendingSubmissions([]);
+    renderAllAdmin();
+    $("#adminStatus").textContent =
+      clearedCount === 0
+        ? "No local pending submissions to clear."
+        : `Cleared ${clearedCount} local pending submission${clearedCount === 1 ? "" : "s"}.`;
+  });
+
+  $("#adminSubmissions").addEventListener("click", async (event) => {
+    const button = event.target.closest("button");
+    if (!button) {
+      return;
+    }
+
+    const index = Number(button.dataset.entryIndex);
+    if (!Number.isInteger(index)) {
+      return;
+    }
+
+    if (button.dataset.action === "copy-pending") {
+      await copyPendingSubmission(index);
+    }
+    if (button.dataset.action === "save-pending-edits") {
+      savePendingEdits(index);
+    }
+    if (button.dataset.action === "approve-pending") {
+      approvePendingSubmission(index);
+    }
+    if (button.dataset.action === "reject-pending") {
+      rejectPendingSubmission(index);
+    }
+  });
+
+  $("#approvedLibrary").addEventListener("click", async (event) => {
+    const button = event.target.closest("button");
+    if (!button) {
+      return;
+    }
+
+    const imageId = button.dataset.imageId;
+    if (!imageId) {
+      return;
+    }
+
+    if (button.dataset.action === "copy-approved") {
+      await copyApprovedImage(imageId);
+    }
+    if (button.dataset.action === "add-approved-to-set") {
+      addImageIdToActiveSet(imageId);
+      renderAllAdmin();
+      $("#approvedStatus").textContent = "Added approved image to the active question set.";
+    }
+    if (button.dataset.action === "remove-approved") {
+      removeApprovedImage(imageId);
+    }
+  });
+
+  $("#copyApprovedJson").addEventListener("click", async () => {
+    await copyText(JSON.stringify(readApprovedImages(), null, 2));
+    $("#approvedStatus").textContent = "Approved library JSON copied.";
+  });
+
+  $("#clearApprovedLocal").addEventListener("click", () => {
+    const clearedCount = readApprovedImages().length;
+    writeApprovedImages([]);
+    renderAllAdmin();
+    $("#approvedStatus").textContent =
+      clearedCount === 0 ? "No approved local images to clear." : `Cleared ${clearedCount} approved local image${clearedCount === 1 ? "" : "s"}.`;
+  });
+
+  $("#questionSetForm").addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveQuestionSetFromForm();
+  });
+
+  $("#newQuestionSet").addEventListener("click", () => {
+    clearQuestionSetForm();
+    renderImagePicker([]);
+    $("#questionSetStatus").textContent = "Ready for a new question set.";
+  });
+
+  $("#questionSetTitle").addEventListener("input", () => {
+    const idInput = $("#questionSetId");
+    if (!cleanString(idInput.value)) {
+      idInput.value = slugify($("#questionSetTitle").value);
+    }
+  });
+
+  $("#imagePicker").addEventListener("change", updateImagePickerCount);
+  $("#imagePicker").addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action='remove-from-picker']");
+    if (!button) {
+      return;
+    }
+
+    const checkbox = $(`#imagePicker input[value="${cssEscape(button.dataset.imageId)}"]`);
+    if (checkbox) {
+      checkbox.checked = false;
+      updateImagePickerCount();
+      $("#questionSetStatus").textContent = "Question removed from this set. Save the set to keep the change.";
+    }
+  });
+
+  $("#questionSetList").addEventListener("click", async (event) => {
+    const button = event.target.closest("button");
+    if (!button) {
+      return;
+    }
+
+    const setId = button.dataset.setId;
+    if (!setId) {
+      return;
+    }
+
+    if (button.dataset.action === "activate-set") {
+      const settings = readOwnerSettings();
+      writeOwnerSettings({ ...settings, activeSetId: setId });
+      renderAllAdmin();
+      $("#questionSetStatus").textContent = "Active question set updated.";
+    }
+    if (button.dataset.action === "edit-set") {
+      loadQuestionSetIntoForm(setId);
+    }
+    if (button.dataset.action === "copy-set") {
+      await copyQuestionSetJson(setId);
+    }
+    if (button.dataset.action === "delete-set") {
+      deleteQuestionSet(setId);
+    }
+  });
+
+  $("#copyActiveSetJson").addEventListener("click", async () => {
+    const activeSet = getActiveQuestionSet(readOwnerSettings().activeSetId);
+    await copyText(JSON.stringify(activeSet, null, 2));
+    $("#questionSetStatus").textContent = "Active question set JSON copied.";
+  });
+
+  $("#copyActiveSetImages").addEventListener("click", async () => {
+    const activeSet = getActiveQuestionSet(readOwnerSettings().activeSetId);
+    const images = getImagesForQuestionSet(activeSet.id);
+    await copyText(JSON.stringify(images, null, 2));
+    $("#questionSetStatus").textContent = "Active question set images copied. Paste these into data/images.json when ready.";
+  });
+}
+
+function renderAllAdmin() {
+  renderOwnerSettings();
+  renderAdminSubmissions();
+  renderApprovedLibrary();
+  renderQuestionSetList();
+  renderImagePicker(getCurrentPickerSelection());
+}
+
+function renderOwnerSettings() {
+  const settings = readOwnerSettings();
+  const sets = readQuestionSets();
+  const activeSetExists = settings.activeSetId === "all" || sets.some((set) => set.id === settings.activeSetId);
+  const activeSetId = activeSetExists ? settings.activeSetId : "all";
+  const homeImages = resolveHomeImages(settings);
+
+  $("#roundsPerGame").value = getConfiguredRoundCount({ ...settings, activeSetId });
+  $("#homeImageSettingOne").value = homeImages[0];
+  $("#homeImageSettingTwo").value = homeImages[1];
+  $("#homeImageSettingThree").value = homeImages[2];
+  $("#includeApprovedLocal").checked = Boolean(settings.includeApprovedLocal);
+  $("#randomizeRounds").checked = settings.randomizeRounds !== false;
+  $("#activeQuestionSet").innerHTML = [
+    `<option value="all">All published images</option>`,
+    ...sets.map((set) => `<option value="${escapeAttribute(set.id)}">${escapeHtml(set.title)} (${set.imageIds.length})</option>`),
+  ].join("");
+  $("#activeQuestionSet").value = activeSetId;
+
+  const activeSet = getActiveQuestionSet(activeSetId);
+  const images = getImagesForQuestionSet(activeSet.id);
+  $("#ownerSettingsStatus").textContent = `${images.length} playable image${images.length === 1 ? "" : "s"} available in the active set.`;
+}
+
+function renderAdminSubmissions() {
+  const pending = readPendingSubmissions();
+  const container = $("#adminSubmissions");
+  $("#adminStatus").textContent = `${pending.length} pending submission${pending.length === 1 ? "" : "s"} found in this browser.`;
+
+  if (pending.length === 0) {
+    container.innerHTML = `
+      <section class="submission-card">
+        <div></div>
+        <div>
+          <h3>No pending submissions</h3>
+          <p>Use the public Submit a Photograph page to generate a local review entry.</p>
+        </div>
+      </section>
+    `;
+    return;
+  }
+
+  container.innerHTML = pending
+    .map((entry, index) => renderSubmissionCard(entry, index, "pending"))
+    .join("");
+}
+
+function renderApprovedLibrary() {
+  const approved = readApprovedImages();
+  const container = $("#approvedLibrary");
+  $("#approvedStatus").textContent = `${approved.length} locally approved image${approved.length === 1 ? "" : "s"} stored in this browser.`;
+
+  if (approved.length === 0) {
+    container.innerHTML = `
+      <section class="submission-card compact-card">
+        <div></div>
+        <div>
+          <h3>No approved local images</h3>
+          <p>Approve a pending submission to add it to this owner-only library.</p>
+        </div>
+      </section>
+    `;
+    return;
+  }
+
+  container.innerHTML = approved
+    .map((entry) => renderApprovedCard(entry))
+    .join("");
+}
+
+function renderSubmissionCard(entry, index) {
+  const json = escapeHtml(JSON.stringify(normalizeImageEntry(entry), null, 2));
+  return `
+    <article class="submission-card" data-pending-card="${index}">
+      <img src="${escapeAttribute(safeImageUrl(entry.image))}" alt="${escapeAttribute(entry.title || "Submitted image")}" />
+      <div>
+        <h3>${escapeHtml(entry.title || "Untitled submission")}</h3>
+        ${renderEditableEntryFields(entry)}
+        <textarea readonly rows="10">${json}</textarea>
+        <div class="button-row">
+          <button class="secondary-button" type="button" data-action="save-pending-edits" data-entry-index="${index}">Save Edits</button>
+          <button class="primary-button" type="button" data-action="approve-pending" data-entry-index="${index}">Approve + Add To Active Set</button>
+          <button class="secondary-button" type="button" data-action="copy-pending" data-entry-index="${index}">Copy JSON</button>
+          <button class="danger-button" type="button" data-action="reject-pending" data-entry-index="${index}">Reject</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderEditableEntryFields(entry) {
+  const normalized = normalizeImageEntry(entry);
+  return `
+    <div class="owner-edit-grid">
+      <label>ID<input data-edit-field="id" value="${escapeAttribute(normalized.id)}" /></label>
+      <label>Title<input data-edit-field="title" value="${escapeAttribute(normalized.title)}" /></label>
+      <label class="full-span">Image URL/path<input data-edit-field="image" value="${escapeAttribute(normalized.image)}" /></label>
+      <label>Location name<input data-edit-field="locationName" value="${escapeAttribute(normalized.locationName)}" /></label>
+      <label>Year<input data-edit-field="year" type="number" min="-3000" max="2000" step="1" value="${escapeAttribute(String(normalized.year))}" /></label>
+      <label>Latitude<input data-edit-field="lat" type="number" step="0.00001" value="${escapeAttribute(String(normalized.lat))}" /></label>
+      <label>Longitude<input data-edit-field="lng" type="number" step="0.00001" value="${escapeAttribute(String(normalized.lng))}" /></label>
+      <label>Year label<input data-edit-field="yearRange" value="${escapeAttribute(normalized.yearRange)}" /></label>
+      <label>Difficulty<input data-edit-field="difficulty" value="${escapeAttribute(normalized.difficulty)}" /></label>
+      <label class="full-span">Case Note<textarea data-edit-field="clue" rows="2">${escapeHtml(normalized.clue)}</textarea></label>
+      <label class="full-span">Historical Record<textarea data-edit-field="explanation" rows="3">${escapeHtml(normalized.explanation)}</textarea></label>
+      <label class="full-span">Source/archive link<input data-edit-field="source" value="${escapeAttribute(normalized.source)}" /></label>
+      <label class="full-span">Rights note<input data-edit-field="rights" value="${escapeAttribute(normalized.rights)}" /></label>
+      <label>Tags<input data-edit-field="tags" value="${escapeAttribute(normalized.tags.join(", "))}" /></label>
+      <label>Submitter<input data-edit-field="submitter" value="${escapeAttribute(normalized.submitter)}" /></label>
+    </div>
+  `;
+}
+
+function renderApprovedCard(entry) {
+  const json = escapeHtml(JSON.stringify(entry, null, 2));
+  return `
+    <article class="submission-card compact-card">
+      <img src="${escapeAttribute(safeImageUrl(entry.image))}" alt="${escapeAttribute(entry.title || "Approved image")}" />
+      <div>
+        <h3>${escapeHtml(entry.title || "Untitled approved image")}</h3>
+        ${renderEntryFields(entry)}
+        <textarea readonly rows="8">${json}</textarea>
+        <div class="button-row">
+          <button class="secondary-button" type="button" data-action="add-approved-to-set" data-image-id="${escapeAttribute(entry.id)}">Add To Active Set</button>
+          <button class="secondary-button" type="button" data-action="copy-approved" data-image-id="${escapeAttribute(entry.id)}">Copy JSON</button>
+          <button class="danger-button" type="button" data-action="remove-approved" data-image-id="${escapeAttribute(entry.id)}">Remove Local</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderEntryFields(entry) {
+  return `
+    <div class="submission-fields">
+      <div><span>Location</span><strong>${escapeHtml(entry.locationName || "Not provided")}</strong></div>
+      <div><span>Coordinates</span><strong>${formatCoordinate(entry.lat)}, ${formatCoordinate(entry.lng)}</strong></div>
+      <div><span>Year</span><strong>${escapeHtml(String(entry.year || "Not provided"))}</strong></div>
+      <div><span>Submitter</span><strong>${escapeHtml(entry.submitter || "Not provided")}</strong></div>
+      <div class="full-span"><span>Case Note</span><strong>${escapeHtml(entry.clue || "Not provided")}</strong></div>
+      <div class="full-span"><span>Historical Record</span><strong>${escapeHtml(entry.explanation || "Not provided")}</strong></div>
+      <div class="full-span"><span>Source</span><strong>${escapeHtml(entry.source || "Not provided")}</strong></div>
+      <div class="full-span"><span>Rights</span><strong>${escapeHtml(entry.rights || "Not provided")}</strong></div>
+    </div>
+  `;
+}
+
+async function copyPendingSubmission(index) {
+  const pending = readPendingSubmissions();
+  if (!pending[index]) {
+    return;
+  }
+
+  const entry = readPendingCardEntry(index) || normalizeImageEntry(pending[index]);
+  await copyText(JSON.stringify(entry, null, 2));
+  $("#adminStatus").textContent = `Copied JSON for ${entry.title || "submission"}.`;
+}
+
+function savePendingEdits(index) {
+  const pending = readPendingSubmissions();
+  if (!pending[index]) {
+    return;
+  }
+
+  const edited = readPendingCardEntry(index);
+  if (!edited) {
+    return;
+  }
+
+  pending[index] = {
+    ...pending[index],
+    ...edited,
+    submittedAt: pending[index].submittedAt || edited.submittedAt,
+  };
+
+  writePendingSubmissions(pending);
+  renderAllAdmin();
+  $("#adminStatus").textContent = `Saved edits for "${edited.title}".`;
+}
+
+function approvePendingSubmission(index) {
+  const pending = readPendingSubmissions();
+  if (!pending[index]) {
+    return;
+  }
+
+  const edited = readPendingCardEntry(index);
+  const [storedEntry] = pending.splice(index, 1);
+  const entry = edited || storedEntry;
+  const approved = normalizeImageEntry({
+    ...entry,
+    difficulty: entry.difficulty === "unreviewed" ? "medium" : entry.difficulty,
+    approvedAt: new Date().toISOString(),
+  });
+
+  writePendingSubmissions(pending);
+  writeApprovedImages(upsertImage(readApprovedImages(), approved));
+  addImageIdToActiveSet(approved.id);
+  renderAllAdmin();
+  $("#adminStatus").textContent = `Approved "${approved.title}" and added it to the active question set.`;
+}
+
+function readPendingCardEntry(index) {
+  const card = $(`[data-pending-card="${index}"]`);
+  if (!card) {
+    return null;
+  }
+
+  const values = {};
+  $$("[data-edit-field]", card).forEach((field) => {
+    values[field.dataset.editField] = cleanString(field.value);
+  });
+
+  const year = Number(values.year);
+  return normalizeImageEntry({
+    id: values.id,
+    title: values.title,
+    image: values.image,
+    locationName: values.locationName,
+    lat: Number(values.lat),
+    lng: Number(values.lng),
+    year,
+    yearRange: values.yearRange || `c. ${year}`,
+    clue: values.clue,
+    explanation: values.explanation,
+    source: values.source,
+    rights: values.rights,
+    difficulty: values.difficulty || "medium",
+    tags: values.tags ? values.tags.split(",").map(cleanString).filter(Boolean) : [],
+    submitter: values.submitter,
+  });
+}
+
+function rejectPendingSubmission(index) {
+  const pending = readPendingSubmissions();
+  if (!pending[index]) {
+    return;
+  }
+
+  const [entry] = pending.splice(index, 1);
+  const rejected = {
+    ...entry,
+    rejectedAt: new Date().toISOString(),
+  };
+
+  writePendingSubmissions(pending);
+  writeRejectedSubmissions([...readRejectedSubmissions(), rejected]);
+  renderAllAdmin();
+  $("#adminStatus").textContent = `Rejected "${entry.title || "submission"}".`;
+}
+
+async function copyApprovedImage(imageId) {
+  const image = readApprovedImages().find((entry) => entry.id === imageId);
+  if (!image) {
+    return;
+  }
+
+  await copyText(JSON.stringify(image, null, 2));
+  $("#approvedStatus").textContent = `Copied JSON for ${image.title}.`;
+}
+
+function removeApprovedImage(imageId) {
+  const approved = readApprovedImages().filter((entry) => entry.id !== imageId);
+  const sets = readQuestionSets().map((set) => ({
+    ...set,
+    imageIds: set.imageIds.filter((id) => id !== imageId),
+    updatedAt: new Date().toISOString(),
+  }));
+
+  writeApprovedImages(approved);
+  writeQuestionSets(sets);
+  renderAllAdmin();
+  $("#approvedStatus").textContent = "Removed local approved image and removed it from local question sets.";
+}
+
+function renderQuestionSetList() {
+  const sets = readQuestionSets();
+  const activeSetId = readOwnerSettings().activeSetId;
+  const container = $("#questionSetList");
+
+  if (sets.length === 0) {
+    container.innerHTML = `
+      <section class="question-set-card">
+        <h3>No custom question sets</h3>
+        <p>Create a set by choosing images below, then save it. The default game still uses all published images.</p>
+      </section>
+    `;
+    return;
+  }
+
+  container.innerHTML = sets
+    .map((set) => {
+      const activeLabel = set.id === activeSetId ? `<span class="status-pill">Active</span>` : "";
+      return `
+        <article class="question-set-card">
+          <div>
+            <h3>${escapeHtml(set.title)} ${activeLabel}</h3>
+            <p>${escapeHtml(set.description || "No description.")}</p>
+            <p class="source-line">${set.imageIds.length} question${set.imageIds.length === 1 ? "" : "s"} | ID: ${escapeHtml(set.id)}</p>
+          </div>
+          <div class="button-row">
+            <button class="primary-button" type="button" data-action="activate-set" data-set-id="${escapeAttribute(set.id)}">Use Set</button>
+            <button class="secondary-button" type="button" data-action="edit-set" data-set-id="${escapeAttribute(set.id)}">Edit</button>
+            <button class="secondary-button" type="button" data-action="copy-set" data-set-id="${escapeAttribute(set.id)}">Copy JSON</button>
+            <button class="danger-button" type="button" data-action="delete-set" data-set-id="${escapeAttribute(set.id)}">Delete</button>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderImagePicker(selectedIds = []) {
+  const selected = new Set(selectedIds);
+  const images = mergeImageLists(adminState.staticImages, readApprovedImages());
+  const picker = $("#imagePicker");
+
+  if (!picker) {
+    return;
+  }
+
+  if (images.length === 0) {
+    picker.innerHTML = `<p>No images available. Check data/images.json or approve a pending submission.</p>`;
+    updateImagePickerCount();
+    return;
+  }
+
+  picker.innerHTML = images
+    .map((image) => {
+      const checked = selected.has(image.id) ? "checked" : "";
+      const disabled = selected.has(image.id) ? "" : "disabled";
+      const localLabel = readApprovedImages().some((entry) => entry.id === image.id) ? "Local approved" : "Published";
+      return `
+        <div class="image-choice">
+          <label>
+            <input type="checkbox" value="${escapeAttribute(image.id)}" ${checked} />
+            <img src="${escapeAttribute(safeImageUrl(image.image))}" alt="${escapeAttribute(image.title)}" />
+            <span>
+              <strong>${escapeHtml(image.title)}</strong>
+              <small>${escapeHtml(image.locationName)} | ${escapeHtml(image.yearRange || String(image.year))} | ${localLabel}</small>
+            </span>
+          </label>
+          <button class="danger-button compact-button" type="button" data-action="remove-from-picker" data-image-id="${escapeAttribute(image.id)}" ${disabled}>
+            Delete From Set
+          </button>
+        </div>
+      `;
+    })
+    .join("");
+
+  updateImagePickerCount();
+}
+
+function updateImagePickerCount() {
+  const count = getCurrentPickerSelection().length;
+  const label = $("#imagePickerCount");
+  if (label) {
+    label.textContent = `${count} selected`;
+  }
+
+  $$("#imagePicker .image-choice").forEach((choice) => {
+    const checkbox = $("input[type='checkbox']", choice);
+    const button = $("button[data-action='remove-from-picker']", choice);
+    if (checkbox && button) {
+      button.disabled = !checkbox.checked;
+    }
+  });
+}
+
+function getCurrentPickerSelection() {
+  return $$("#imagePicker input[type='checkbox']:checked").map((input) => input.value);
+}
+
+function saveQuestionSetFromForm() {
+  const title = cleanString($("#questionSetTitle").value);
+  const id = slugify($("#questionSetId").value || title);
+  const description = cleanString($("#questionSetDescription").value);
+  const imageIds = getCurrentPickerSelection();
+
+  if (!title || !id) {
+    $("#questionSetStatus").textContent = "Add a set title and ID first.";
+    return;
+  }
+
+  if (imageIds.length === 0) {
+    $("#questionSetStatus").textContent = "Choose at least one question for the set.";
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const sets = readQuestionSets();
+  const existing = sets.find((set) => set.id === id);
+  const nextSet = {
+    id,
+    title,
+    description,
+    imageIds,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+  const nextSets = existing
+    ? sets.map((set) => (set.id === id ? nextSet : set))
+    : [...sets, nextSet];
+
+  writeQuestionSets(nextSets);
+  writeOwnerSettings({ ...readOwnerSettings(), activeSetId: id });
+  $("#editingSetId").value = id;
+  renderAllAdmin();
+  loadQuestionSetIntoForm(id);
+  $("#questionSetStatus").textContent = `Saved and activated "${title}".`;
+}
+
+function clearQuestionSetForm() {
+  $("#editingSetId").value = "";
+  $("#questionSetTitle").value = "";
+  $("#questionSetId").value = "";
+  $("#questionSetDescription").value = "";
+}
+
+function loadQuestionSetIntoForm(setId) {
+  const set = readQuestionSets().find((entry) => entry.id === setId);
+  if (!set) {
+    return;
+  }
+
+  $("#editingSetId").value = set.id;
+  $("#questionSetTitle").value = set.title;
+  $("#questionSetId").value = set.id;
+  $("#questionSetDescription").value = set.description || "";
+  renderImagePicker(set.imageIds);
+  $("#questionSetStatus").textContent = `Editing "${set.title}".`;
+}
+
+async function copyQuestionSetJson(setId) {
+  const set = getActiveQuestionSet(setId);
+  await copyText(JSON.stringify(set, null, 2));
+  $("#questionSetStatus").textContent = `Copied JSON for "${set.title}".`;
+}
+
+function deleteQuestionSet(setId) {
+  const sets = readQuestionSets().filter((set) => set.id !== setId);
+  const settings = readOwnerSettings();
+  const nextSettings = settings.activeSetId === setId ? { ...settings, activeSetId: "all" } : settings;
+
+  writeQuestionSets(sets);
+  writeOwnerSettings(nextSettings);
+  clearQuestionSetForm();
+  renderAllAdmin();
+  $("#questionSetStatus").textContent = "Question set deleted.";
+}
+
+function addImageIdToActiveSet(imageId) {
+  const settings = readOwnerSettings();
+  let sets = readQuestionSets();
+  let activeSetId = settings.activeSetId;
+  let activeSet = sets.find((set) => set.id === activeSetId);
+
+  if (!activeSet || activeSetId === "all") {
+    activeSetId = OWNER_APPROVED_SET_ID;
+    activeSet = sets.find((set) => set.id === activeSetId);
+  }
+
+  if (!activeSet) {
+    activeSet = {
+      id: OWNER_APPROVED_SET_ID,
+      title: "Owner Approved Records",
+      description: "Locally approved submissions ready for owner review and testing.",
+      imageIds: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    sets = [...sets, activeSet];
+  }
+
+  if (!activeSet.imageIds.includes(imageId)) {
+    activeSet.imageIds.push(imageId);
+    activeSet.updatedAt = new Date().toISOString();
+  }
+
+  writeQuestionSets(sets.map((set) => (set.id === activeSet.id ? activeSet : set)));
+  writeOwnerSettings({
+    ...settings,
+    activeSetId,
+    includeApprovedLocal: true,
+  });
+}
+
+function getImagesForQuestionSet(setId) {
+  const allImages = mergeImageLists(adminState.staticImages.length ? adminState.staticImages : state.staticImages, readApprovedImages());
+
+  if (setId === "all") {
+    return allImages;
+  }
+
+  const set = getActiveQuestionSet(setId);
+  const allowed = new Set(set.imageIds || []);
+  return allImages.filter((image) => allowed.has(image.id));
+}
+
+function getActiveQuestionSet(setId) {
+  if (!setId || setId === "all") {
+    const staticIds = (adminState.staticImages.length ? adminState.staticImages : state.staticImages).map((image) => image.id);
+    return {
+      id: "all",
+      title: "All published images",
+      description: "Every verified image currently listed in data/images.json.",
+      imageIds: staticIds,
+    };
+  }
+
+  return (
+    readQuestionSets().find((set) => set.id === setId) || {
+      id: "all",
+      title: "All published images",
+      description: "Every verified image currently listed in data/images.json.",
+      imageIds: [],
+    }
+  );
+}
+
+function readOwnerSettings() {
+  const stored = readJsonStorage(OWNER_SETTINGS_STORAGE_KEY, {});
+  const merged = {
+    ...DEFAULT_OWNER_SETTINGS,
+    ...stored,
+  };
+  if (!Array.isArray(stored.homeImages)) {
+    delete merged.homeImages;
+  }
+  const homeImages = resolveHomeImages(merged);
+  return {
+    ...merged,
+    homeImages,
+    homeImage: homeImages[0],
+    roundsPerGame: getConfiguredRoundCount(stored),
+  };
+}
+
+function writeOwnerSettings(settings) {
+  const homeImages = resolveHomeImages(settings);
+  const nextSettings = {
+    ...DEFAULT_OWNER_SETTINGS,
+    ...settings,
+    homeImages,
+    homeImage: homeImages[0],
+    roundsPerGame: getConfiguredRoundCount(settings),
+  };
+  writeJsonStorage(OWNER_SETTINGS_STORAGE_KEY, nextSettings);
+}
+
+function resolveHomeImages(settings = {}) {
+  const configured = Array.isArray(settings.homeImages) ? settings.homeImages : [];
+  const legacyFirst = cleanString(settings.homeImage);
+  const configuredClean = configured.map(cleanString);
+  const isLegacyDefault =
+    configuredClean.length === LEGACY_HOME_IMAGES.length &&
+    LEGACY_HOME_IMAGES.every((value, index) => configuredClean[index] === value);
+  if (isLegacyDefault) {
+    return [...DEFAULT_HOME_IMAGES];
+  }
+
+  return DEFAULT_HOME_IMAGES.map((fallback, index) => {
+    if (cleanString(configured[index])) {
+      return cleanString(configured[index]);
+    }
+    if (index === 0 && legacyFirst) {
+      return legacyFirst;
+    }
+    return fallback;
+  });
+}
+
+function getConfiguredRoundCount(settings = readOwnerSettings()) {
+  return clampNumber(Number(settings.roundsPerGame), MIN_ROUNDS, MAX_ROUNDS, DEFAULT_ROUND_COUNT);
+}
+
+function readPendingSubmissions() {
+  return readJsonStorage(PENDING_STORAGE_KEY, []);
+}
+
+function writePendingSubmissions(entries) {
+  writeJsonStorage(PENDING_STORAGE_KEY, entries);
+}
+
+function readApprovedImages() {
+  return readJsonStorage(APPROVED_STORAGE_KEY, []).filter(isPlayableImage).map(normalizeImageEntry);
+}
+
+function writeApprovedImages(entries) {
+  writeJsonStorage(APPROVED_STORAGE_KEY, entries.filter(isPlayableImage).map(normalizeImageEntry));
+}
+
+function readRejectedSubmissions() {
+  return readJsonStorage(REJECTED_STORAGE_KEY, []);
+}
+
+function writeRejectedSubmissions(entries) {
+  writeJsonStorage(REJECTED_STORAGE_KEY, entries);
+}
+
+function readQuestionSets() {
+  return readJsonStorage(QUESTION_SETS_STORAGE_KEY, [])
+    .filter((set) => set && set.id && set.title && Array.isArray(set.imageIds))
+    .map((set) => ({
+      id: cleanString(set.id),
+      title: cleanString(set.title),
+      description: cleanString(set.description),
+      imageIds: set.imageIds.map(cleanString).filter(Boolean),
+      createdAt: cleanString(set.createdAt),
+      updatedAt: cleanString(set.updatedAt),
+    }));
+}
+
+function writeQuestionSets(sets) {
+  const uniqueSets = [];
+  sets.forEach((set) => {
+    if (!set.id || uniqueSets.some((entry) => entry.id === set.id)) {
+      return;
+    }
+    uniqueSets.push({
+      ...set,
+      imageIds: Array.from(new Set(set.imageIds || [])),
+    });
+  });
+  writeJsonStorage(QUESTION_SETS_STORAGE_KEY, uniqueSets);
+}
+
+function readJsonStorage(key, fallback) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback));
+  } catch (error) {
+    console.error(error);
+    return fallback;
+  }
+}
+
+function writeJsonStorage(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getCurrentRound() {
+  return state.rounds[state.currentRoundIndex];
+}
+
+function getTotalScore() {
+  return state.results.reduce((sum, result) => sum + result.roundScore, 0);
+}
+
+function clearMapLayers() {
+  [state.guessMarker, state.correctMarker, state.answerLine].forEach((layer) => {
+    if (layer && state.map) {
+      state.map.removeLayer(layer);
+    }
+  });
+
+  state.guessMarker = null;
+  state.correctMarker = null;
+  state.answerLine = null;
+}
+
+function haversineDistance(lat1, lng1, lat2, lng2) {
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return earthRadiusKm * c;
+}
+
+function toRadians(degrees) {
+  return (degrees * Math.PI) / 180;
+}
+
+function ratingForScore(score, maxScore) {
+  const ratio = maxScore > 0 ? score / maxScore : 0;
+  if (ratio >= 0.88) return "Master of the Archive";
+  if (ratio >= 0.72) return "Excellent Chronoscopist";
+  if (ratio >= 0.52) return "Promising Detective";
+  if (ratio >= 0.32) return "Curious Traveller";
+  return "Lost in the Archives";
+}
+
+function seededShuffle(items, seedKey) {
+  const random = mulberry32(hashString(seedKey));
+  for (let index = items.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(random() * (index + 1));
+    [items[index], items[swapIndex]] = [items[swapIndex], items[index]];
+  }
+  return items;
+}
+
+function getDailySeedKey() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function hashString(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function mulberry32(seed) {
+  return function random() {
+    let value = (seed += 0x6d2b79f5);
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function mergeImageLists(primary, secondary) {
+  const merged = [...primary];
+  secondary.forEach((image) => {
+    const normalized = normalizeImageEntry(image);
+    const index = merged.findIndex((entry) => entry.id === normalized.id);
+    if (index >= 0) {
+      merged[index] = normalized;
+    } else {
+      merged.push(normalized);
+    }
+  });
+  return merged;
+}
+
+function upsertImage(images, image) {
+  const normalized = normalizeImageEntry(image);
+  const existingIndex = images.findIndex((entry) => entry.id === normalized.id);
+  if (existingIndex >= 0) {
+    return images.map((entry, index) => (index === existingIndex ? normalized : entry));
+  }
+  return [...images, normalized];
+}
+
+function clampNumber(value, min, max, fallback) {
+  if (!Number.isFinite(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, Math.round(value)));
+}
+
+function formatNumber(value) {
+  return Math.round(Number(value)).toLocaleString("en-US");
+}
+
+function formatYearLabel(year) {
+  const numericYear = Number(year);
+  if (!Number.isFinite(numericYear)) {
+    return "Unknown";
+  }
+  if (numericYear < 0) {
+    return `${formatNumber(Math.abs(numericYear))} BCE`;
+  }
+  return `${formatNumber(numericYear || 1)} CE`;
+}
+
+function formatDistance(value) {
+  const distance = Number(value);
+  if (!Number.isFinite(distance)) {
+    return "unknown";
+  }
+  if (distance < 1) {
+    return `${Math.round(distance * 1000)} m`;
+  }
+  return `${formatNumber(distance)} km`;
+}
+
+function formatCoordinate(value) {
+  const coordinate = Number(value);
+  return Number.isFinite(coordinate) ? coordinate.toFixed(3) : "n/a";
+}
+
+function cleanString(value) {
+  return String(value || "").trim();
+}
+
+function slugify(value) {
+  return cleanString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 48);
+}
+
+function safeImageUrl(value) {
+  const url = cleanString(value);
+  if (/^(https?:|data:image\/|assets\/)/i.test(url)) {
+    return url;
+  }
+  return "assets/images/beijing_church_001.svg";
+}
+
+function escapeHtml(value) {
+  return cleanString(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function escapeAttribute(value) {
+  return escapeHtml(value).replace(/`/g, "&#096;");
+}
+
+function cssEscape(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(value);
+  }
+  return String(value).replace(/"/g, '\\"');
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
