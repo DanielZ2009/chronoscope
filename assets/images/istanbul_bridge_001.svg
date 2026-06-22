@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 820" role="img" aria-label="Sample archival illustration">
+  <rect width="1200" height="820" fill="#d4c39f"/>
+  <rect x="45" y="45" width="1110" height="730" fill="#eadbbd" stroke="#725734" stroke-width="12"/>
+  <path d="M90 610h1020" stroke="#78603d" stroke-width="14"/>
+  <path d="M120 655h960" stroke="#78603d" stroke-width="24"/>
+  <path d="M170 610v80M300 610v80M430 610v80M560 610v80M690 610v80M820 610v80M950 610v80" stroke="#4c3a25" stroke-width="10"/>
+  <path d="M130 520c160-40 310-35 450 0s300 38 490-5v80H130z" fill="#8fa3a2" opacity="0.55"/>
+  <path d="M750 520V300h70v220M690 520V360h65v160M830 520V380h90v140" fill="#b99c6b" stroke="#5d472b" stroke-width="8"/>
+  <path d="M775 300c20-75 55-75 75 0" fill="none" stroke="#5d472b" stroke-width="8"/>
+  <path d="M820 250v-70M785 210h70" stroke="#5d472b" stroke-width="10" stroke-linecap="round"/>
+  <text x="600" y="110" text-anchor="middle" fill="#4d3a24" font-family="Georgia, serif" font-size="48" font-weight="700">ARCHIVE RECORD</text>
+  <text x="600" y="750" text-anchor="middle" fill="#4d3a24" font-family="Georgia, serif" font-size="34">Harbor, bridge, skyline traces</text>
+</svg>
