@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Owner Repair Panel | Chronoscope</title>
+    <link rel="icon" href="assets/chronoscope-wax-seal-256.png" type="image/png" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-3" />
+    <script src="script.js?v=chronoscope-3" defer></script>
+  </head>
+  <body data-page="admin">
+    <header class="site-header">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">
+          <img src="assets/chronoscope-wax-seal.png" alt="" />
+        </span>
+        <span>
+          <strong>Chronoscope</strong>
+          <small>Owner Repair Panel</small>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Admin navigation">
+        <a href="index.html">Game</a>
+      </nav>
+    </header>
+
+    <main class="app-shell">
+      <section class="screen is-active owner-gate" id="ownerGate">
+        <div class="section-heading">
+          <p class="kicker">Repair access</p>
+          <h1>Owner Panel</h1>
+          <p>
+            This panel is separated from the player interface. Enter the owner
+            repair code to review submissions, approve or reject entries, create
+            question sets, and control game settings for this browser.
+          </p>
+        </div>
+
+        <form id="ownerAccessForm" class="owner-access-form">
+          <label>
+            Owner repair code
+            <input id="ownerCode" type="password" autocomplete="current-password" />
+          </label>
+          <button class="primary-button" type="submit">Unlock Owner Panel</button>
+        </form>
+        <p class="loading-note" id="ownerGateStatus"></p>
+      </section>
+
+      <section class="screen admin-screen" id="ownerPanel">
+        <div class="section-heading">
+          <p class="kicker">Private workflow</p>
+          <h1>Owner Control Panel</h1>
+          <p>
+            Static sites cannot publish changes automatically. This panel saves
+            review decisions and question sets locally, then helps you copy
+            approved JSON into the real data files when you are ready.
+          </p>
+        </div>
+
+        <section class="owner-card">
+          <h2>Game Controls</h2>
+          <form id="ownerSettingsForm" class="owner-form">
+            <label>
+              Questions per game
+              <input id="roundsPerGame" type="number" min="1" max="20" step="1" />
+            </label>
+            <label>
+              Active question set
+              <select id="activeQuestionSet"></select>
+            </label>
+            <label class="full-span">
+              Home page primary image URL/path
+              <input id="homeImageSettingOne" placeholder="assets/images/cairo_street_001.svg" />
+            </label>
+            <label>
+              Primary image place
+              <input id="homePlaceSettingOne" placeholder="Cairo, Egypt" />
+            </label>
+            <label>
+              Primary image time
+              <input id="homeTimeSettingOne" placeholder="c. 1910" />
+            </label>
+            <label class="full-span">
+              Home page secondary image 1 URL/path
+              <input id="homeImageSettingTwo" placeholder="assets/images/beijing_church_001.svg" />
+            </label>
+            <label>
+              Secondary image 1 place
+              <input id="homePlaceSettingTwo" placeholder="Beijing, China" />
+            </label>
+            <label>
+              Secondary image 1 time
+              <input id="homeTimeSettingTwo" placeholder="c. 1910" />
+            </label>
+            <label class="full-span">
+              Home page secondary image 2 URL/path
+              <input id="homeImageSettingThree" placeholder="assets/images/mumbai_station_001.svg" />
+            </label>
+            <label>
+              Secondary image 2 place
+              <input id="homePlaceSettingThree" placeholder="Mumbai, India" />
+            </label>
+            <label>
+              Secondary image 2 time
+              <input id="homeTimeSettingThree" placeholder="c. 1905" />
+            </label>
+            <label class="checkbox-row">
+              <input id="includeApprovedLocal" type="checkbox" />
+              Include locally approved images in owner previews
+            </label>
+            <label class="checkbox-row">
+              <input id="randomizeRounds" type="checkbox" />
+              Use daily image order
+            </label>
+            <div class="form-actions full-span">
+              <button class="primary-button" type="submit">Save Controls</button>
+              <button class="secondary-button" type="button" id="lockOwnerPanel">
+                Lock Panel
+              </button>
+            </div>
+          </form>
+          <p class="loading-note" id="ownerSettingsStatus"></p>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Public publishing</p>
+              <h2>Publish Changes</h2>
+            </div>
+            <div class="admin-toolbar">
+              <button class="secondary-button" type="button" id="copySiteSettingsJson">
+                Copy Site Settings
+              </button>
+              <button class="secondary-button" type="button" id="copyPublishedImagesJson">
+                Copy Game Images
+              </button>
+            </div>
+          </div>
+          <p>
+            Owner edits are drafts stored in this browser. To make them visible
+            on every device, copy these records into the matching files in the
+            GitHub repository, then commit the changes.
+          </p>
+          <div class="publish-grid">
+            <label>
+              data/site_settings.json
+              <textarea id="siteSettingsExport" readonly rows="12"></textarea>
+            </label>
+            <label>
+              data/images.json
+              <textarea id="publishedImagesExport" readonly rows="12"></textarea>
+            </label>
+          </div>
+          <p class="loading-note" id="publishStatus"></p>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Local review queue</p>
+              <h2>Pending Submissions</h2>
+            </div>
+            <div class="admin-toolbar">
+              <button class="secondary-button" type="button" id="refreshAdmin">Refresh</button>
+              <button class="danger-button" type="button" id="clearPending">
+                Clear Pending
+              </button>
+            </div>
+          </div>
+
+          <p class="loading-note" id="adminStatus"></p>
+          <div id="adminSubmissions" class="admin-list"></div>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Approved locally</p>
+              <h2>Approved Library</h2>
+            </div>
+            <div class="admin-toolbar">
+              <button class="secondary-button" type="button" id="copyApprovedJson">
+                Copy Approved JSON
+              </button>
+              <button class="danger-button" type="button" id="clearApprovedLocal">
+                Clear Approved
+              </button>
+            </div>
+          </div>
+          <p class="loading-note" id="approvedStatus"></p>
+          <div id="approvedLibrary" class="admin-list"></div>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Question sets</p>
+              <h2>Set Builder</h2>
+            </div>
+            <div class="admin-toolbar">
+              <button class="secondary-button" type="button" id="copyActiveSetJson">
+                Copy Active Set
+              </button>
+              <button class="secondary-button" type="button" id="copyActiveSetImages">
+                Copy Active Images
+              </button>
+            </div>
+          </div>
+
+          <form id="questionSetForm" class="owner-form">
+            <input id="editingSetId" type="hidden" />
+            <label>
+              Set title
+              <input id="questionSetTitle" placeholder="North China Religious Sites" />
+            </label>
+            <label>
+              Set ID
+              <input id="questionSetId" placeholder="north_china_religious_sites" />
+            </label>
+            <label class="full-span">
+              Description
+              <textarea id="questionSetDescription" rows="3"></textarea>
+            </label>
+            <div class="full-span">
+              <div class="image-picker-heading">
+                <strong>Choose questions</strong>
+                <span id="imagePickerCount">0 selected</span>
+              </div>
+              <div id="imagePicker" class="image-picker"></div>
+            </div>
+            <div class="form-actions full-span">
+              <button class="primary-button" type="submit">Save Question Set</button>
+              <button class="secondary-button" type="button" id="newQuestionSet">
+                New Set
+              </button>
+            </div>
+          </form>
+          <p class="loading-note" id="questionSetStatus"></p>
+          <div id="questionSetList" class="question-set-list"></div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
