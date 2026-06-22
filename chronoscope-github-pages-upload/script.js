@@ -1,28 +1,28 @@
 "use strict";
 
 /*
-  Chronoscope is designed for GitHub Pages: every file is static, and no backend
-  is needed. Add real archive images to assets/images, then add entries to
-  data/images.json using the same fields as the samples.
+  Chronoscope is designed for GitHub Pages plus an optional Supabase data layer.
+  Approved public images load from Supabase first, then fall back to
+  data/images.json if Supabase is not configured or unavailable.
 
-  Deploy by publishing this folder as the GitHub Pages root or docs folder; no
-  build step is required. Because static sites cannot write files, the owner
-  panel stores approvals, question sets, and controls in localStorage and helps
-  the owner copy verified JSON into the real data files.
+  Only the Supabase project URL and anon/publishable key belong in this file.
+  Never add a service role key, database password, or other secret to frontend
+  JavaScript. Row Level Security is the security boundary.
 */
 
 const IMAGE_DATA_URL = "data/images.json";
 const SITE_SETTINGS_URL = "data/site_settings.json";
+
+// Supabase frontend config. Paste only the project URL and anon/publishable key.
+// Leave these blank to keep using the JSON fallback only.
+const SUPABASE_URL = "https://ryofasvrzvdhgaaerhqb.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_XjqOxlNCTFKO_kGnRHmdPQ_2q8pyxbq";
+
 const PENDING_STORAGE_KEY = "historyImageDetective.pendingSubmissions.v1";
 const APPROVED_STORAGE_KEY = "historyImageDetective.approvedImages.v1";
 const REJECTED_STORAGE_KEY = "historyImageDetective.rejectedSubmissions.v1";
 const QUESTION_SETS_STORAGE_KEY = "historyImageDetective.questionSets.v1";
 const OWNER_SETTINGS_STORAGE_KEY = "historyImageDetective.ownerSettings.v1";
-const OWNER_ACCESS_STORAGE_KEY = "historyImageDetective.ownerAccess.v1";
-
-// Change this before publishing if you want a different casual owner gate.
-// This is not true security; a backend is required for real private admin auth.
-const OWNER_REPAIR_CODE = "chronoscope-owner";
 
 const DEFAULT_ROUND_COUNT = 5;
 const MIN_ROUNDS = 1;
@@ -91,6 +91,8 @@ const state = {
   pendingSubmissionLatLng: null,
   confirmedSubmissionLatLng: null,
   publicSettings: DEFAULT_OWNER_SETTINGS,
+  supabaseClient: null,
+  dataSource: "json",
 };
 
 const adminState = {
@@ -121,7 +123,6 @@ async function initMainPage() {
   bindSubmissionLocationControls();
   bindSubmissionForm();
   bindCopyButtons();
-  bindRepairAccess();
 
   applyHashRoute();
   window.addEventListener("hashchange", applyHashRoute);
@@ -193,13 +194,69 @@ function applyHashRoute() {
   }
 }
 
-async function fetchImageData() {
+async function fetchJsonImageData() {
   const response = await fetch(IMAGE_DATA_URL, { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`Could not load ${IMAGE_DATA_URL}`);
   }
 
-  return response.json();
+  const images = await response.json();
+  return Array.isArray(images)
+    ? images.map((image) => ({ ...image, dataOrigin: image.dataOrigin || "json" }))
+    : [];
+}
+
+async function fetchImageData() {
+  const requiredRows = getConfiguredRoundCount(readOwnerSettings());
+  let supabaseImages = [];
+
+  try {
+    supabaseImages = await fetchSupabaseImageData();
+  } catch (error) {
+    if (isSupabaseConfigured()) {
+      console.warn("Supabase image load failed; using JSON fallback.", error);
+    }
+  }
+
+  if (supabaseImages.length > 0) {
+    if (supabaseImages.length < requiredRows) {
+      console.info(`Supabase returned ${supabaseImages.length} approved image(s); filling the rest of the game from JSON fallback.`);
+    }
+
+    try {
+      const jsonImages = await fetchJsonImageData();
+      state.dataSource = supabaseImages.length >= requiredRows ? "supabase" : "supabase+json";
+      return mergePublicImageData(supabaseImages, jsonImages);
+    } catch (error) {
+      console.warn("JSON fallback could not load; using Supabase images only.", error);
+      state.dataSource = "supabase";
+      return supabaseImages;
+    }
+  }
+
+  state.dataSource = "json";
+  return fetchJsonImageData();
+}
+
+async function fetchSupabaseImageData() {
+  const client = getSupabaseClient();
+  if (!client) {
+    return [];
+  }
+
+  const { data, error } = await client
+    .from("images")
+    .select("*")
+    .eq("approved", true)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data || [])
+    .map(normalizeSupabaseImageRow)
+    .filter(isPlayableImage);
 }
 
 async function loadSiteSettings() {
@@ -267,10 +324,62 @@ function normalizeImageEntry(entry) {
     rights: cleanString(entry.rights),
     difficulty: cleanString(entry.difficulty) || "medium",
     tags: Array.isArray(entry.tags) ? entry.tags.map(cleanString).filter(Boolean) : [],
+    dataOrigin: cleanString(entry.dataOrigin),
+    createdAt: cleanString(entry.createdAt),
     submitter: cleanString(entry.submitter),
     submittedAt: cleanString(entry.submittedAt),
     approvedAt: cleanString(entry.approvedAt),
   };
+}
+
+function normalizeSupabaseImageRow(row) {
+  return normalizeImageEntry({
+    id: row.id,
+    title: row.title,
+    image: row.image_url,
+    locationName: row.location_name,
+    lat: row.lat,
+    lng: row.lng,
+    year: row.year,
+    yearRange: row.year_range,
+    clue: row.case_note,
+    explanation: row.historical_record,
+    source: row.source,
+    rights: row.rights,
+    difficulty: row.difficulty,
+    tags: row.tags,
+    dataOrigin: "supabase",
+    createdAt: row.created_at,
+    approvedAt: row.created_at,
+  });
+}
+
+function getSupabaseClient() {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+
+  if (state.supabaseClient) {
+    return state.supabaseClient;
+  }
+
+  state.supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+    },
+  });
+
+  return state.supabaseClient;
+}
+
+function isSupabaseConfigured() {
+  return Boolean(
+    SUPABASE_URL &&
+      SUPABASE_ANON_KEY &&
+      window.supabase &&
+      typeof window.supabase.createClient === "function"
+  );
 }
 
 function resolveGameImagePool(staticImages) {
@@ -392,7 +501,7 @@ function startGame() {
   const settings = readOwnerSettings();
   const roundCount = Math.min(getConfiguredRoundCount(settings), state.images.length);
   // TODO: Expand deterministic daily challenge mode with past-day archives and shareable daily IDs.
-  const pool = settings.randomizeRounds ? seededShuffle([...state.images], getDailySeedKey()) : [...state.images];
+  const pool = selectDailyRoundPool(state.images, roundCount, settings);
 
   state.rounds = pool.slice(0, roundCount);
   state.results = [];
@@ -695,15 +804,23 @@ function bindSubmissionForm() {
     return;
   }
 
-  form.addEventListener("submit", (event) => {
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const entry = buildSubmissionEntry(new FormData(form));
-    const pending = readPendingSubmissions();
-    pending.push(entry);
-    writePendingSubmissions(pending);
 
-    $("#generatedSubmission").value = JSON.stringify(entry, null, 2);
-    $("#submissionStatus").textContent = "Saved as a pending review record. Send this record to the site owner for verification.";
+    try {
+      await submitEntryToSupabase(entry);
+      $("#generatedSubmission").value = "";
+      $("#submissionStatus").textContent = "Submission received. It will be reviewed before appearing in Chronoscope.";
+    } catch (error) {
+      const pending = readPendingSubmissions();
+      pending.push(entry);
+      writePendingSubmissions(pending);
+
+      $("#generatedSubmission").value = JSON.stringify(entry, null, 2);
+      $("#submissionStatus").textContent = "Supabase could not receive this submission. A backup review record is ready to copy and send to the site owner.";
+      console.warn("Supabase submission failed; using copyable JSON fallback.", error);
+    }
   });
 
   form.addEventListener("reset", () => {
@@ -820,7 +937,39 @@ function buildSubmissionEntry(formData) {
     difficulty: "unreviewed",
     tags: [],
     submitter: cleanString(formData.get("submitter")),
+    submitterContact: cleanString(formData.get("submitterContact")),
     submittedAt: new Date().toISOString(),
+  };
+}
+
+async function submitEntryToSupabase(entry) {
+  const client = getSupabaseClient();
+  if (!client) {
+    throw new Error("Supabase is not configured.");
+  }
+
+  const { error } = await client.from("submissions").insert(mapSubmissionToSupabaseRow(entry));
+  if (error) {
+    throw error;
+  }
+}
+
+function mapSubmissionToSupabaseRow(entry) {
+  return {
+    title: entry.title,
+    image_url: entry.image,
+    location_name: entry.locationName || null,
+    lat: Number.isFinite(Number(entry.lat)) ? Number(entry.lat) : null,
+    lng: Number.isFinite(Number(entry.lng)) ? Number(entry.lng) : null,
+    year: Number.isFinite(Number(entry.year)) ? Number(entry.year) : null,
+    year_range: entry.yearRange || null,
+    case_note: entry.clue || null,
+    historical_record: entry.explanation || null,
+    source: entry.source || null,
+    rights: entry.rights || null,
+    submitter_name: entry.submitter || null,
+    submitter_contact: entry.submitterContact || null,
+    status: "pending",
   };
 }
 
@@ -847,285 +996,547 @@ function bindCopyButtons() {
   }
 }
 
-function bindRepairAccess() {
-  const openButton = $("#openRepairAccess");
-  const closeButton = $("#closeRepairAccess");
-  const panel = $("#repairAccess");
-  const form = $("#repairAccessForm");
-  if (!openButton || !closeButton || !panel || !form) {
+async function initAdminPage() {
+  bindCuratorAdmin();
+
+  if (!isSupabaseConfigured()) {
+    showCuratorLogin("Supabase is not configured yet. Add the project URL and anon key in script.js.");
     return;
   }
 
-  openButton.addEventListener("click", () => {
-    panel.hidden = false;
-    $("#repairAccessStatus").textContent = "";
-    $("#repairAccessCode").value = "";
-    $("#repairAccessCode").focus();
-  });
+  const client = getSupabaseClient();
+  const { data, error } = await client.auth.getSession();
+  if (error) {
+    showCuratorLogin(error.message);
+    return;
+  }
 
-  closeButton.addEventListener("click", () => {
-    panel.hidden = true;
-  });
+  if (data.session) {
+    await showCuratorDashboard(data.session);
+  } else {
+    showCuratorLogin();
+  }
 
-  panel.addEventListener("click", (event) => {
-    if (event.target === panel) {
-      panel.hidden = true;
+  client.auth.onAuthStateChange(async (_event, session) => {
+    if (session) {
+      await showCuratorDashboard(session);
+    } else {
+      showCuratorLogin();
     }
   });
-
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const code = cleanString($("#repairAccessCode").value);
-    if (code !== OWNER_REPAIR_CODE) {
-      $("#repairAccessStatus").textContent = "Access code not recognized.";
-      return;
-    }
-
-    localStorage.setItem(OWNER_ACCESS_STORAGE_KEY, "true");
-    window.location.href = "admin.html#repair";
-  });
 }
 
-async function initAdminPage() {
-  bindOwnerGate();
-
-  if (hasOwnerAccess()) {
-    await openOwnerPanel();
-  }
-}
-
-function bindOwnerGate() {
-  const form = $("#ownerAccessForm");
-  if (form) {
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      const code = cleanString($("#ownerCode").value);
-
-      if (code !== OWNER_REPAIR_CODE) {
-        $("#ownerGateStatus").textContent = "Owner code not recognized.";
-        return;
-      }
-
-      localStorage.setItem(OWNER_ACCESS_STORAGE_KEY, "true");
-      $("#ownerCode").value = "";
-      await openOwnerPanel();
-    });
-  }
-}
-
-async function openOwnerPanel() {
-  $("#ownerGate").classList.remove("is-active");
-  $("#ownerPanel").classList.add("is-active");
-
-  await loadSiteSettings();
-
-  try {
-    const images = await fetchImageData();
-    adminState.staticImages = images.filter(isPlayableImage).map(normalizeImageEntry);
-  } catch (error) {
-    adminState.staticImages = [];
-    console.error(error);
-  }
-
-  bindAdminControls();
-  renderAllAdmin();
-}
-
-function hasOwnerAccess() {
-  return localStorage.getItem(OWNER_ACCESS_STORAGE_KEY) === "true";
-}
-
-function bindAdminControls() {
+function bindCuratorAdmin() {
   if (adminState.bound) {
     return;
   }
   adminState.bound = true;
 
-  $("#lockOwnerPanel").addEventListener("click", () => {
-    localStorage.removeItem(OWNER_ACCESS_STORAGE_KEY);
-    $("#ownerPanel").classList.remove("is-active");
-    $("#ownerGate").classList.add("is-active");
-    $("#ownerGateStatus").textContent = "Owner panel locked.";
-  });
+  const loginForm = $("#curatorLoginForm");
+  if (loginForm) {
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const client = getSupabaseClient();
+      if (!client) {
+        $("#curatorLoginStatus").textContent = "Supabase is not configured yet.";
+        return;
+      }
 
-  $("#ownerSettingsForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-    const homeGallery = [
-      buildHomeGalleryEntry(0, "One"),
-      buildHomeGalleryEntry(1, "Two"),
-      buildHomeGalleryEntry(2, "Three"),
-    ];
-    const settings = {
-      roundsPerGame: clampNumber(Number($("#roundsPerGame").value), MIN_ROUNDS, MAX_ROUNDS, DEFAULT_ROUND_COUNT),
-      activeSetId: $("#activeQuestionSet").value || "all",
-      homeImages: homeGallery.map((entry) => entry.image),
-      homeImage: homeGallery[0].image,
-      homeGallery,
-      includeApprovedLocal: $("#includeApprovedLocal").checked,
-      randomizeRounds: $("#randomizeRounds").checked,
+      $("#curatorLoginStatus").textContent = "Signing in...";
+      const email = cleanString($("#curatorEmail").value);
+      const password = $("#curatorPassword").value;
+      const { data, error } = await client.auth.signInWithPassword({ email, password });
+
+      if (error) {
+        $("#curatorLoginStatus").textContent = error.message;
+        return;
+      }
+
+      $("#curatorPassword").value = "";
+      await showCuratorDashboard(data.session);
+    });
+  }
+
+  const logoutButton = $("#curatorLogout");
+  if (logoutButton) {
+    logoutButton.addEventListener("click", async () => {
+      const client = getSupabaseClient();
+      if (client) {
+        await client.auth.signOut();
+      }
+      showCuratorLogin("Signed out.");
+    });
+  }
+
+  const refreshButton = $("#refreshCuratorData");
+  if (refreshButton) {
+    refreshButton.addEventListener("click", loadCuratorDashboard);
+  }
+
+  const pendingList = $("#pendingSubmissionsList");
+  if (pendingList) {
+    pendingList.addEventListener("click", handleCuratorSubmissionAction);
+  }
+
+  const approvedList = $("#approvedImagesList");
+  if (approvedList) {
+    approvedList.addEventListener("click", handleCuratorImageAction);
+  }
+}
+
+function showCuratorLogin(message = "") {
+  $("#curatorDashboard")?.classList.remove("is-active");
+  $("#curatorLogin")?.classList.add("is-active");
+  if ($("#curatorLoginStatus")) {
+    $("#curatorLoginStatus").textContent = message;
+  }
+}
+
+async function showCuratorDashboard(session) {
+  $("#curatorLogin")?.classList.remove("is-active");
+  $("#curatorDashboard")?.classList.add("is-active");
+  if ($("#curatorUserEmail")) {
+    $("#curatorUserEmail").textContent = session?.user?.email || "Curator";
+  }
+  await loadCuratorDashboard();
+}
+
+async function loadCuratorDashboard() {
+  const client = getSupabaseClient();
+  if (!client) {
+    showCuratorLogin("Supabase is not configured yet.");
+    return;
+  }
+
+  $("#curatorStatus").textContent = "Loading curator records...";
+
+  const [submissionsResult, imagesResult] = await Promise.all([
+    client.from("submissions").select("*").order("created_at", { ascending: false }),
+    client.from("images").select("*").order("created_at", { ascending: false }),
+  ]);
+
+  if (submissionsResult.error) {
+    $("#curatorStatus").textContent = submissionsResult.error.message;
+    return;
+  }
+
+  if (imagesResult.error) {
+    $("#curatorStatus").textContent = imagesResult.error.message;
+    return;
+  }
+
+  const submissions = submissionsResult.data || [];
+  const pending = submissions.filter((entry) => entry.status === "pending");
+  const rejected = submissions.filter((entry) => entry.status === "rejected");
+
+  renderCuratorPendingSubmissions(pending);
+  renderCuratorApprovedImages(imagesResult.data || []);
+  renderCuratorRejectedSubmissions(rejected);
+  $("#curatorStatus").textContent = `${pending.length} pending submission${pending.length === 1 ? "" : "s"} ready for review.`;
+}
+
+function renderCuratorPendingSubmissions(submissions) {
+  const container = $("#pendingSubmissionsList");
+  if (!container) {
+    return;
+  }
+
+  if (submissions.length === 0) {
+    container.innerHTML = renderCuratorEmptyState("No pending submissions", "New public submissions will appear here.");
+    return;
+  }
+
+  container.innerHTML = submissions.map((entry) => renderCuratorSubmissionCard(entry, true)).join("");
+}
+
+function renderCuratorApprovedImages(images) {
+  const container = $("#approvedImagesList");
+  if (!container) {
+    return;
+  }
+
+  if (images.length === 0) {
+    container.innerHTML = renderCuratorEmptyState("No approved images", "Published Chronoscope cases will appear here.");
+    return;
+  }
+
+  container.innerHTML = images.map(renderCuratorImageCard).join("");
+}
+
+function renderCuratorRejectedSubmissions(submissions) {
+  const container = $("#rejectedSubmissionsList");
+  if (!container) {
+    return;
+  }
+
+  if (submissions.length === 0) {
+    container.innerHTML = renderCuratorEmptyState("No rejected submissions", "Rejected submissions are kept here for reference.");
+    return;
+  }
+
+  container.innerHTML = submissions.map((entry) => renderCuratorSubmissionCard(entry, false)).join("");
+}
+
+function renderCuratorEmptyState(title, body) {
+  return `
+    <section class="curator-card empty-state">
+      <h3>${escapeHtml(title)}</h3>
+      <p>${escapeHtml(body)}</p>
+    </section>
+  `;
+}
+
+function renderCuratorSubmissionCard(entry, editable) {
+  const tags = Array.isArray(entry.tags) ? entry.tags.join(", ") : "";
+  const difficulty = cleanString(entry.difficulty) || "medium";
+  const submittedBy = [entry.submitter_name, entry.submitter_contact].map(cleanString).filter(Boolean).join(" | ") || "Not provided";
+
+  return `
+    <article class="curator-card" data-curator-submission-id="${escapeAttribute(entry.id)}">
+      <div class="curator-preview">
+        <img src="${escapeAttribute(safeImageUrl(entry.image_url))}" alt="${escapeAttribute(entry.title || "Submitted image")}" />
+        <span class="status-pill">${escapeHtml(entry.status || "pending")}</span>
+      </div>
+      <div>
+        <div class="curator-card-head">
+          <div>
+            <p class="kicker">Review Case</p>
+            <h3>${escapeHtml(entry.title || "Untitled submission")}</h3>
+          </div>
+          <p class="source-line">${escapeHtml(formatAdminDate(entry.created_at))}</p>
+        </div>
+        <div class="submission-fields">
+          <div><span>Submitter</span><strong>${escapeHtml(submittedBy)}</strong></div>
+          <div><span>Original status</span><strong>${escapeHtml(entry.status || "pending")}</strong></div>
+        </div>
+        <form class="curator-edit-grid" data-curator-form="${escapeAttribute(entry.id)}">
+          ${renderCuratorInput("Title", "title", entry.title, "input", true)}
+          ${renderCuratorInput("Image URL", "image_url", entry.image_url, "input", true)}
+          ${renderCuratorInput("Location name", "location_name", entry.location_name, "input", true)}
+          ${renderCuratorInput("Latitude", "lat", entry.lat, "number", true)}
+          ${renderCuratorInput("Longitude", "lng", entry.lng, "number", true)}
+          ${renderCuratorInput("Year", "year", entry.year, "number", true)}
+          ${renderCuratorInput("Year range", "year_range", entry.year_range)}
+          ${renderCuratorInput("Difficulty", "difficulty", difficulty)}
+          ${renderCuratorInput("Tags", "tags", tags)}
+          ${renderCuratorInput("Source", "source", entry.source)}
+          ${renderCuratorInput("Rights", "rights", entry.rights)}
+          ${renderCuratorInput("Case note", "case_note", entry.case_note, "textarea")}
+          ${renderCuratorInput("Historical Record", "historical_record", entry.historical_record, "textarea")}
+          ${renderCuratorInput("Admin notes", "admin_notes", entry.admin_notes, "textarea")}
+        </form>
+        ${
+          editable
+            ? `<div class="button-row curator-actions">
+                <button class="secondary-button" type="button" data-action="save-submission">Edit</button>
+                <button class="primary-button" type="button" data-action="approve-submission">Publish to Chronoscope</button>
+                <button class="danger-button" type="button" data-action="reject-submission">Reject Submission</button>
+              </div>`
+            : ""
+        }
+      </div>
+    </article>
+  `;
+}
+
+function renderCuratorInput(label, field, value, type = "input", required = false) {
+  const safeValue = value === null || value === undefined ? "" : String(value);
+  const requiredLabel = required ? " required" : "";
+  const inputType = type === "number" ? "number" : "text";
+  const step = field === "lat" || field === "lng" ? ` step="0.00001"` : "";
+  const numberAttrs = type === "number" ? `${step}` : "";
+
+  if (type === "textarea") {
+    return `
+      <label class="full-span">${escapeHtml(label)}${requiredLabel}
+        <textarea data-field="${escapeAttribute(field)}" rows="3">${escapeHtml(safeValue)}</textarea>
+      </label>
+    `;
+  }
+
+  return `
+    <label>${escapeHtml(label)}${requiredLabel}
+      <input data-field="${escapeAttribute(field)}" type="${inputType}"${numberAttrs} value="${escapeAttribute(safeValue)}" />
+    </label>
+  `;
+}
+
+function renderCuratorImageCard(row) {
+  const year = row.year_range || String(row.year || "");
+  const tags = Array.isArray(row.tags) && row.tags.length ? row.tags.join(", ") : "No tags";
+  return `
+    <article class="curator-card compact-curator-card" data-curator-image-id="${escapeAttribute(row.id)}">
+      <div class="curator-preview">
+        <img src="${escapeAttribute(safeImageUrl(row.image_url))}" alt="${escapeAttribute(row.title || "Approved image")}" />
+        <span class="status-pill">${row.approved ? "Published" : "Hidden"}</span>
+      </div>
+      <div>
+        <h3>${escapeHtml(row.title || "Untitled image")}</h3>
+        <div class="submission-fields">
+          <div><span>Location</span><strong>${escapeHtml(row.location_name || "Not provided")}</strong></div>
+          <div><span>Year</span><strong>${escapeHtml(year)}</strong></div>
+          <div><span>Coordinates</span><strong>${formatCoordinate(row.lat)}, ${formatCoordinate(row.lng)}</strong></div>
+          <div><span>Tags</span><strong>${escapeHtml(tags)}</strong></div>
+        </div>
+        <div class="button-row curator-actions">
+          <button class="secondary-button" type="button" data-action="toggle-image">${row.approved ? "Unpublish" : "Publish"}</button>
+          <button class="danger-button" type="button" data-action="delete-image">Delete</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+async function handleCuratorSubmissionAction(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) {
+    return;
+  }
+
+  const card = event.target.closest("[data-curator-submission-id]");
+  if (!card) {
+    return;
+  }
+
+  const submissionId = card.dataset.curatorSubmissionId;
+  const action = button.dataset.action;
+
+  if (action === "save-submission") {
+    await saveCuratorSubmission(submissionId);
+  }
+  if (action === "approve-submission") {
+    await approveCuratorSubmission(submissionId);
+  }
+  if (action === "reject-submission") {
+    await rejectCuratorSubmission(submissionId);
+  }
+}
+
+async function handleCuratorImageAction(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) {
+    return;
+  }
+
+  const card = event.target.closest("[data-curator-image-id]");
+  if (!card) {
+    return;
+  }
+
+  const imageId = card.dataset.curatorImageId;
+  if (button.dataset.action === "toggle-image") {
+    await toggleCuratorImage(imageId, button.textContent.trim() === "Unpublish");
+  }
+  if (button.dataset.action === "delete-image") {
+    await deleteCuratorImage(imageId);
+  }
+}
+
+async function saveCuratorSubmission(submissionId) {
+  const client = getSupabaseClient();
+  const values = readCuratorFormValues(submissionId);
+  const { error } = await client
+    .from("submissions")
+    .update(mapCuratorValuesToSubmissionUpdate(values))
+    .eq("id", submissionId);
+
+  if (error) {
+    $("#curatorStatus").textContent = error.message;
+    return;
+  }
+
+  $("#curatorStatus").textContent = "Review edits saved.";
+  await loadCuratorDashboard();
+}
+
+async function approveCuratorSubmission(submissionId) {
+  const client = getSupabaseClient();
+  const values = readCuratorFormValues(submissionId);
+  const validationError = validateCuratorImageValues(values);
+  if (validationError) {
+    $("#curatorStatus").textContent = validationError;
+    return;
+  }
+
+  const { error: insertError } = await client
+    .from("images")
+    .insert(mapCuratorValuesToImageRow(values));
+
+  if (insertError) {
+    $("#curatorStatus").textContent = insertError.message;
+    return;
+  }
+
+  const { error: updateError } = await client
+    .from("submissions")
+    .update({
+      ...mapCuratorValuesToSubmissionUpdate(values),
+      status: "approved",
+    })
+    .eq("id", submissionId);
+
+  if (updateError) {
+    $("#curatorStatus").textContent = `Published, but submission status could not update: ${updateError.message}`;
+    await loadCuratorDashboard();
+    return;
+  }
+
+  $("#curatorStatus").textContent = "Published. This case is now visible to players.";
+  await loadCuratorDashboard();
+}
+
+async function rejectCuratorSubmission(submissionId) {
+  const client = getSupabaseClient();
+  const values = readCuratorFormValues(submissionId);
+  const note = window.prompt("Optional admin note for this rejection:", values.admin_notes || "");
+  const { error } = await client
+    .from("submissions")
+    .update({
+      ...mapCuratorValuesToSubmissionUpdate(values),
+      status: "rejected",
+      admin_notes: cleanString(note) || values.admin_notes || null,
+    })
+    .eq("id", submissionId);
+
+  if (error) {
+    $("#curatorStatus").textContent = error.message;
+    return;
+  }
+
+  $("#curatorStatus").textContent = "Submission rejected.";
+  await loadCuratorDashboard();
+}
+
+async function toggleCuratorImage(imageId, currentlyApproved) {
+  const client = getSupabaseClient();
+  const { error } = await client
+    .from("images")
+    .update({ approved: !currentlyApproved })
+    .eq("id", imageId);
+
+  if (error) {
+    $("#curatorStatus").textContent = error.message;
+    return;
+  }
+
+  $("#curatorStatus").textContent = currentlyApproved ? "Image unpublished." : "Image published.";
+  await loadCuratorDashboard();
+}
+
+async function deleteCuratorImage(imageId) {
+  if (!window.confirm("Delete this approved image? This cannot be undone.")) {
+    return;
+  }
+
+  const client = getSupabaseClient();
+  const { error } = await client.from("images").delete().eq("id", imageId);
+
+  if (error) {
+    $("#curatorStatus").textContent = error.message;
+    return;
+  }
+
+  $("#curatorStatus").textContent = "Image deleted.";
+  await loadCuratorDashboard();
+}
+
+function readCuratorFormValues(submissionId) {
+  const form = $(`[data-curator-form="${cssEscape(submissionId)}"]`);
+  if (!form) {
+    return {
+      title: "",
+      image_url: "",
+      location_name: "",
+      lat: Number.NaN,
+      lng: Number.NaN,
+      year: Number.NaN,
+      year_range: "",
+      case_note: "",
+      historical_record: "",
+      source: "",
+      rights: "",
+      difficulty: "",
+      tags: [],
+      admin_notes: "",
     };
+  }
 
-    writeOwnerSettings(settings);
-    renderAllAdmin();
-    $("#ownerSettingsStatus").textContent = "Game controls saved for this browser.";
+  const values = {};
+  $$("[data-field]", form).forEach((field) => {
+    values[field.dataset.field] = cleanString(field.value);
   });
 
-  $("#refreshAdmin").addEventListener("click", renderAllAdmin);
-  $("#clearPending").addEventListener("click", () => {
-    const clearedCount = readPendingSubmissions().length;
-    writePendingSubmissions([]);
-    renderAllAdmin();
-    $("#adminStatus").textContent =
-      clearedCount === 0
-        ? "No local pending submissions to clear."
-        : `Cleared ${clearedCount} local pending submission${clearedCount === 1 ? "" : "s"}.`;
-  });
+  return {
+    title: values.title,
+    image_url: values.image_url,
+    location_name: values.location_name,
+    lat: Number(values.lat),
+    lng: Number(values.lng),
+    year: Number(values.year),
+    year_range: values.year_range,
+    case_note: values.case_note,
+    historical_record: values.historical_record,
+    source: values.source,
+    rights: values.rights,
+    difficulty: values.difficulty,
+    tags: splitTags(values.tags),
+    admin_notes: values.admin_notes,
+  };
+}
 
-  $("#adminSubmissions").addEventListener("click", async (event) => {
-    const button = event.target.closest("button");
-    if (!button) {
-      return;
-    }
+function mapCuratorValuesToSubmissionUpdate(values) {
+  return {
+    title: values.title,
+    image_url: values.image_url,
+    location_name: values.location_name || null,
+    lat: Number.isFinite(values.lat) ? values.lat : null,
+    lng: Number.isFinite(values.lng) ? values.lng : null,
+    year: Number.isFinite(values.year) ? values.year : null,
+    year_range: values.year_range || null,
+    case_note: values.case_note || null,
+    historical_record: values.historical_record || null,
+    source: values.source || null,
+    rights: values.rights || null,
+    difficulty: values.difficulty || null,
+    tags: values.tags,
+    admin_notes: values.admin_notes || null,
+  };
+}
 
-    const index = Number(button.dataset.entryIndex);
-    if (!Number.isInteger(index)) {
-      return;
-    }
+function mapCuratorValuesToImageRow(values) {
+  return {
+    title: values.title,
+    image_url: values.image_url,
+    location_name: values.location_name,
+    lat: values.lat,
+    lng: values.lng,
+    year: values.year,
+    year_range: values.year_range || null,
+    case_note: values.case_note || null,
+    historical_record: values.historical_record || null,
+    source: values.source || null,
+    rights: values.rights || null,
+    difficulty: values.difficulty || null,
+    tags: values.tags,
+    approved: true,
+  };
+}
 
-    if (button.dataset.action === "copy-pending") {
-      await copyPendingSubmission(index);
-    }
-    if (button.dataset.action === "save-pending-edits") {
-      savePendingEdits(index);
-    }
-    if (button.dataset.action === "approve-pending") {
-      approvePendingSubmission(index);
-    }
-    if (button.dataset.action === "reject-pending") {
-      rejectPendingSubmission(index);
-    }
-  });
+function validateCuratorImageValues(values) {
+  if (!values.title) return "Title is required before publishing.";
+  if (!values.image_url) return "Image URL is required before publishing.";
+  if (!values.location_name) return "Location name is required before publishing.";
+  if (!Number.isFinite(values.lat)) return "Latitude is required before publishing.";
+  if (!Number.isFinite(values.lng)) return "Longitude is required before publishing.";
+  if (!Number.isFinite(values.year)) return "Year is required before publishing.";
+  return "";
+}
 
-  $("#approvedLibrary").addEventListener("click", async (event) => {
-    const button = event.target.closest("button");
-    if (!button) {
-      return;
-    }
-
-    const imageId = button.dataset.imageId;
-    if (!imageId) {
-      return;
-    }
-
-    if (button.dataset.action === "copy-approved") {
-      await copyApprovedImage(imageId);
-    }
-    if (button.dataset.action === "add-approved-to-set") {
-      addImageIdToActiveSet(imageId);
-      renderAllAdmin();
-      $("#approvedStatus").textContent = "Added approved image to the active question set.";
-    }
-    if (button.dataset.action === "remove-approved") {
-      removeApprovedImage(imageId);
-    }
-  });
-
-  $("#copyApprovedJson").addEventListener("click", async () => {
-    await copyText(JSON.stringify(readApprovedImages(), null, 2));
-    $("#approvedStatus").textContent = "Approved library JSON copied.";
-  });
-
-  $("#clearApprovedLocal").addEventListener("click", () => {
-    const clearedCount = readApprovedImages().length;
-    writeApprovedImages([]);
-    renderAllAdmin();
-    $("#approvedStatus").textContent =
-      clearedCount === 0 ? "No approved local images to clear." : `Cleared ${clearedCount} approved local image${clearedCount === 1 ? "" : "s"}.`;
-  });
-
-  $("#questionSetForm").addEventListener("submit", (event) => {
-    event.preventDefault();
-    saveQuestionSetFromForm();
-  });
-
-  $("#newQuestionSet").addEventListener("click", () => {
-    clearQuestionSetForm();
-    renderImagePicker([]);
-    $("#questionSetStatus").textContent = "Ready for a new question set.";
-  });
-
-  $("#questionSetTitle").addEventListener("input", () => {
-    const idInput = $("#questionSetId");
-    if (!cleanString(idInput.value)) {
-      idInput.value = slugify($("#questionSetTitle").value);
-    }
-  });
-
-  $("#imagePicker").addEventListener("change", updateImagePickerCount);
-  $("#imagePicker").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action='remove-from-picker']");
-    if (!button) {
-      return;
-    }
-
-    const checkbox = $(`#imagePicker input[value="${cssEscape(button.dataset.imageId)}"]`);
-    if (checkbox) {
-      checkbox.checked = false;
-      updateImagePickerCount();
-      $("#questionSetStatus").textContent = "Question removed from this set. Save the set to keep the change.";
-    }
-  });
-
-  $("#questionSetList").addEventListener("click", async (event) => {
-    const button = event.target.closest("button");
-    if (!button) {
-      return;
-    }
-
-    const setId = button.dataset.setId;
-    if (!setId) {
-      return;
-    }
-
-    if (button.dataset.action === "activate-set") {
-      const settings = readOwnerSettings();
-      writeOwnerSettings({ ...settings, activeSetId: setId });
-      renderAllAdmin();
-      $("#questionSetStatus").textContent = "Active question set updated.";
-    }
-    if (button.dataset.action === "edit-set") {
-      loadQuestionSetIntoForm(setId);
-    }
-    if (button.dataset.action === "copy-set") {
-      await copyQuestionSetJson(setId);
-    }
-    if (button.dataset.action === "delete-set") {
-      deleteQuestionSet(setId);
-    }
-  });
-
-  $("#copyActiveSetJson").addEventListener("click", async () => {
-    const activeSet = getActiveQuestionSet(readOwnerSettings().activeSetId);
-    await copyText(JSON.stringify(activeSet, null, 2));
-    $("#questionSetStatus").textContent = "Active question set JSON copied.";
-  });
-
-  $("#copyActiveSetImages").addEventListener("click", async () => {
-    const activeSet = getActiveQuestionSet(readOwnerSettings().activeSetId);
-    const images = getImagesForQuestionSet(activeSet.id);
-    await copyText(JSON.stringify(images, null, 2));
-    $("#questionSetStatus").textContent = "Active question set images copied. Paste these into data/images.json when ready.";
-  });
-
-  $("#copySiteSettingsJson").addEventListener("click", async () => {
-    await copyText($("#siteSettingsExport").value);
-    $("#publishStatus").textContent = "Site settings copied. Paste this into data/site_settings.json and commit it.";
-  });
-
-  $("#copyPublishedImagesJson").addEventListener("click", async () => {
-    await copyText($("#publishedImagesExport").value);
-    $("#publishStatus").textContent = "Game images copied. Paste this into data/images.json and commit it.";
-  });
+function splitTags(value) {
+  return cleanString(value)
+    .split(",")
+    .map(cleanString)
+    .filter(Boolean);
 }
 
 function renderAllAdmin() {
@@ -1195,7 +1606,11 @@ function buildHomeGalleryEntry(index, suffix) {
 function renderAdminSubmissions() {
   const pending = readPendingSubmissions();
   const container = $("#adminSubmissions");
-  $("#adminStatus").textContent = `${pending.length} pending submission${pending.length === 1 ? "" : "s"} found in this browser.`;
+  const status = $("#adminStatus");
+  if (!container || !status) {
+    return;
+  }
+  status.textContent = `${pending.length} pending submission${pending.length === 1 ? "" : "s"} found in this browser.`;
 
   if (pending.length === 0) {
     container.innerHTML = `
@@ -1218,7 +1633,11 @@ function renderAdminSubmissions() {
 function renderApprovedLibrary() {
   const approved = readApprovedImages();
   const container = $("#approvedLibrary");
-  $("#approvedStatus").textContent = `${approved.length} locally approved image${approved.length === 1 ? "" : "s"} stored in this browser.`;
+  const status = $("#approvedStatus");
+  if (!container || !status) {
+    return;
+  }
+  status.textContent = `${approved.length} locally approved image${approved.length === 1 ? "" : "s"} stored in this browser.`;
 
   if (approved.length === 0) {
     container.innerHTML = `
@@ -1886,6 +2305,37 @@ function seededShuffle(items, seedKey) {
   return items;
 }
 
+function selectDailyRoundPool(images, roundCount, settings) {
+  if (settings.randomizeRounds === false) {
+    return [...images];
+  }
+
+  const seedKey = getDailySeedKey();
+  const supabaseImages = images.filter((image) => image.dataOrigin === "supabase");
+  const fallbackImages = images.filter((image) => image.dataOrigin !== "supabase");
+
+  if (supabaseImages.length === 0) {
+    return seededShuffle([...images], seedKey);
+  }
+
+  const publishedTodayPool = sortByNewestPublication(supabaseImages).slice(0, roundCount);
+  const remainingSlots = Math.max(0, roundCount - publishedTodayPool.length);
+  const fillerPool = seededShuffle([...fallbackImages], `${seedKey}:fallback`).slice(0, remainingSlots);
+
+  return [...publishedTodayPool, ...fillerPool];
+}
+
+function sortByNewestPublication(images) {
+  return [...images].sort((a, b) => {
+    const bTime = Date.parse(b.createdAt || b.approvedAt || "") || 0;
+    const aTime = Date.parse(a.createdAt || a.approvedAt || "") || 0;
+    if (bTime !== aTime) {
+      return bTime - aTime;
+    }
+    return String(a.title).localeCompare(String(b.title));
+  });
+}
+
 function getDailySeedKey() {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -1921,6 +2371,18 @@ function mergeImageLists(primary, secondary) {
     } else {
       merged.push(normalized);
     }
+  });
+  return merged;
+}
+
+function mergePublicImageData(supabaseImages, jsonImages) {
+  const merged = [];
+  [...supabaseImages, ...jsonImages].forEach((image) => {
+    const normalized = normalizeImageEntry(image);
+    if (!isPlayableImage(normalized) || merged.some((entry) => entry.id === normalized.id)) {
+      return;
+    }
+    merged.push(normalized);
   });
   return merged;
 }

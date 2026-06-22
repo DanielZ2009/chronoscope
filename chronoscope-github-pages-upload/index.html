@@ -11,9 +11,10 @@
 
     <link rel="icon" href="assets/chronoscope-wax-seal-256.png" type="image/png" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <link rel="stylesheet" href="style.css?v=chronoscope-3" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-6" />
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-    <script src="script.js?v=chronoscope-3" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="script.js?v=chronoscope-6" defer></script>
   </head>
   <body data-page="main">
     <header class="site-header">
@@ -270,6 +271,10 @@
               Submitter name or initials
               <input name="submitter" required placeholder="A. Chen" />
             </label>
+            <label>
+              Contact <span class="optional-label">optional</span>
+              <input name="submitterContact" placeholder="Email or social handle" />
+            </label>
 
             <div class="form-actions full-span">
               <button class="primary-button" type="submit">Submit for Review</button>
@@ -280,8 +285,9 @@
           <section class="generated-panel">
             <h3>Submission Record</h3>
             <p>
-              Your proposal is prepared for owner review. It does not publish
-              anything to the game.
+              With Supabase configured, your proposal goes directly to the
+              private review table. If that fails, a copyable backup record
+              appears here.
             </p>
             <textarea id="generatedSubmission" readonly rows="18"></textarea>
             <div class="button-row">
@@ -330,27 +336,8 @@
       <span>Chronoscope</span>
       <span>
         A map game for archival images
-        <button class="repair-link" type="button" id="openRepairAccess">Repair</button>
+        <a class="repair-link" href="admin.html">Curator</a>
       </span>
     </footer>
-
-    <section class="repair-access" id="repairAccess" hidden aria-label="Owner repair access">
-      <div class="repair-access-card">
-        <button class="repair-close" type="button" id="closeRepairAccess" aria-label="Close repair access">
-          &times;
-        </button>
-        <p class="kicker">Owner access</p>
-        <h2>Repair Panel</h2>
-        <p>Enter the owner repair code to continue.</p>
-        <form id="repairAccessForm" class="repair-access-form">
-          <label>
-            Access code
-            <input id="repairAccessCode" type="password" autocomplete="current-password" />
-          </label>
-          <button class="primary-button" type="submit">Open Repair</button>
-        </form>
-        <p class="loading-note" id="repairAccessStatus" aria-live="polite"></p>
-      </div>
-    </section>
   </body>
 </html>
