@@ -1,0 +1,23 @@
+{
+  "roundsPerGame": 5,
+  "activeSetId": "all",
+  "activeSetName": "All published cases",
+  "randomizeRounds": true,
+  "homeGallery": [
+    {
+      "image": "",
+      "place": "Awaiting image",
+      "time": "Curator selection"
+    },
+    {
+      "image": "",
+      "place": "Awaiting image",
+      "time": "Curator selection"
+    },
+    {
+      "image": "",
+      "place": "Awaiting image",
+      "time": "Curator selection"
+    }
+  ]
+}

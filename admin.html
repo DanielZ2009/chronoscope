@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Curator Dashboard | Chronoscope</title>
+    <link rel="icon" href="assets/favicon.ico" sizes="any" />
+    <link rel="icon" href="assets/chronoscope-wax-seal-256.png" type="image/png" />
+    <link rel="apple-touch-icon" href="assets/chronoscope-wax-seal-256.png" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-14" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="script.js?v=chronoscope-14" defer></script>
+  </head>
+  <body data-page="admin">
+    <header class="site-header">
+      <a class="brand" href="index.html">
+        <span class="brand-mark">
+          <img src="assets/chronoscope-wax-seal.png" alt="" />
+        </span>
+        <span>
+          <strong>Chronoscope</strong>
+          <small>Curator Dashboard</small>
+        </span>
+      </a>
+      <nav class="site-nav" aria-label="Admin navigation">
+        <a href="index.html">Game</a>
+      </nav>
+    </header>
+
+    <main class="app-shell">
+      <section class="screen is-active owner-gate" id="curatorLogin">
+        <div class="section-heading">
+          <p class="kicker">Curator Login</p>
+          <h1>Chronoscope Admin</h1>
+          <p>
+            Sign in with the owner account created in Supabase Auth to review,
+            edit, approve, or reject public submissions.
+          </p>
+        </div>
+
+        <form id="curatorLoginForm" class="owner-access-form">
+          <label>
+            Email
+            <input id="curatorEmail" type="email" autocomplete="email" required />
+          </label>
+          <label>
+            Password
+            <input id="curatorPassword" type="password" autocomplete="current-password" required />
+          </label>
+          <button class="primary-button" type="submit">Log In</button>
+        </form>
+        <p class="loading-note" id="curatorLoginStatus" aria-live="polite"></p>
+      </section>
+
+      <section class="screen admin-screen curator-dashboard" id="curatorDashboard">
+        <div class="section-heading">
+          <p class="kicker">Curator Desk</p>
+          <h1>Review Cases</h1>
+          <p>
+            Verify location, date, source, and rights before publishing a case to
+            Chronoscope.
+          </p>
+          <div class="button-row">
+            <span class="status-pill" id="curatorUserEmail"></span>
+            <button class="secondary-button" type="button" id="refreshCuratorData">Refresh</button>
+            <button class="secondary-button" type="button" id="curatorLogout">Log Out</button>
+          </div>
+          <p class="loading-note" id="curatorStatus" aria-live="polite"></p>
+        </div>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Public Homepage</p>
+              <h2>Home Gallery</h2>
+            </div>
+          </div>
+          <p>
+            Choose the three archive images shown on the homepage. Use public image URLs
+            or existing site paths such as <code>assets/images/my_archive_image.jpg</code>.
+          </p>
+          <form id="curatorHomeGalleryForm" class="owner-form">
+            <label class="full-span">
+              Primary image URL/path
+              <input id="curatorHomeImageOne" placeholder="https://archive.example/image.jpg" />
+            </label>
+            <label>
+              Primary place
+              <input id="curatorHomePlaceOne" placeholder="Cairo, Egypt" />
+            </label>
+            <label>
+              Primary time
+              <input id="curatorHomeTimeOne" placeholder="c. 1910" />
+            </label>
+
+            <label class="full-span">
+              Secondary image 1 URL/path
+              <input id="curatorHomeImageTwo" placeholder="https://archive.example/image.jpg" />
+            </label>
+            <label>
+              Secondary place 1
+              <input id="curatorHomePlaceTwo" placeholder="Beijing, China" />
+            </label>
+            <label>
+              Secondary time 1
+              <input id="curatorHomeTimeTwo" placeholder="c. 1910" />
+            </label>
+
+            <label class="full-span">
+              Secondary image 2 URL/path
+              <input id="curatorHomeImageThree" placeholder="https://archive.example/image.jpg" />
+            </label>
+            <label>
+              Secondary place 2
+              <input id="curatorHomePlaceThree" placeholder="Mumbai, India" />
+            </label>
+            <label>
+              Secondary time 2
+              <input id="curatorHomeTimeThree" placeholder="c. 1905" />
+            </label>
+
+            <div class="form-actions full-span">
+              <button class="primary-button" type="submit">Save Home Gallery</button>
+            </div>
+          </form>
+          <p class="loading-note" id="curatorHomeGalleryStatus" aria-live="polite"></p>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Daily Challenge</p>
+              <h2>Question Sets</h2>
+            </div>
+          </div>
+          <p>
+            Create named sets from approved cases, then choose which set the public
+            game should use. Select “All published cases” to use everything.
+          </p>
+
+          <form id="curatorQuestionSetForm" class="owner-form">
+            <label>
+              Set name
+              <input id="curatorQuestionSetTitle" placeholder="Early Modern Asia" />
+            </label>
+            <label>
+              Set ID
+              <input id="curatorQuestionSetId" placeholder="early_modern_asia" />
+            </label>
+            <label class="full-span">
+              Description
+              <textarea id="curatorQuestionSetDescription" rows="2"></textarea>
+            </label>
+            <div class="full-span">
+              <p class="field-note" id="curatorQuestionSetCount">0 selected</p>
+              <div id="curatorQuestionImagePicker" class="image-picker"></div>
+            </div>
+            <div class="form-actions full-span">
+              <button class="primary-button" type="submit">Save Question Set</button>
+              <button class="secondary-button" type="button" id="clearCuratorQuestionSetForm">New Set</button>
+            </div>
+          </form>
+
+          <div class="owner-form curator-active-set-form">
+            <label>
+              Active public set
+              <select id="curatorActiveQuestionSet"></select>
+            </label>
+            <label>
+              Public set name
+              <input id="curatorActiveQuestionSetName" placeholder="Today's Challenge" />
+            </label>
+            <div class="form-actions">
+              <button class="primary-button" type="button" id="saveCuratorActiveSet">Use Selected Set</button>
+            </div>
+          </div>
+
+          <div id="curatorQuestionSetList" class="question-set-list"></div>
+          <p class="loading-note" id="curatorQuestionSetStatus" aria-live="polite"></p>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Pending Submissions</p>
+              <h2>Review Queue</h2>
+            </div>
+          </div>
+          <div id="pendingSubmissionsList" class="curator-list"></div>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Published Cases</p>
+              <h2>Approved Images</h2>
+            </div>
+          </div>
+          <div id="approvedImagesList" class="curator-list compact-list"></div>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Archive Decisions</p>
+              <h2>Rejected Submissions</h2>
+            </div>
+          </div>
+          <div id="rejectedSubmissionsList" class="curator-list compact-list"></div>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
