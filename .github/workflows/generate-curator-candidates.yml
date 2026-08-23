@@ -1,0 +1,56 @@
+name: Research curator candidates
+
+on:
+  schedule:
+    # 08:00 in Shanghai (00:00 UTC). GitHub schedules use UTC.
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      count:
+        description: Number of verified pending candidates to create
+        required: true
+        default: "10"
+      dry_run:
+        description: Research and validate without inserting into Supabase
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: chronoscope-curator-research
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.6' }}
+      SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
+      CANDIDATE_COUNT: ${{ inputs.count || '10' }}
+      DRY_RUN: ${{ inputs.dry_run || 'false' }}
+
+    steps:
+      - name: Check research configuration
+        id: configuration
+        shell: bash
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Add OPENAI_API_KEY in repository Settings > Secrets and variables > Actions to enable curator research."
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out Chronoscope
+        if: steps.configuration.outputs.enabled == 'true'
+        uses: actions/checkout@v4
+
+      - name: Research, audit, and queue candidates
+        if: steps.configuration.outputs.enabled == 'true'
+        run: node tools/generate-curator-candidates.mjs

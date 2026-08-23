@@ -30,6 +30,13 @@ chronoscope/
   supabase/
     migrations/
       001_chronoscope_schema.sql
+  tools/
+    generate-curator-candidates.mjs
+  research/
+    pilot-candidates-2026-08-23.json
+  .github/
+    workflows/
+      generate-curator-candidates.yml
   README.md
 ```
 
@@ -182,6 +189,58 @@ Then open:
 ```text
 http://localhost:8000
 ```
+
+## Curator Research Assistant
+
+Chronoscope includes an optional research workflow that proposes ten historical
+images each day and sends them to `public.submissions` with `status = pending`.
+It never publishes a case. Every candidate remains in the curator Review Queue
+until the owner edits and approves it.
+
+The workflow uses two research passes:
+
+1. A discovery pass searches a restricted group of archives, libraries, and museums.
+2. A separate audit pass rechecks the exact year, point-like location, image identity,
+   and reuse rights.
+
+Candidates are rejected when the date is approximate, the depicted location is only
+known at city/region level, the image URL does not load, the location is disputed, or
+the rights record is unclear. Evidence and confidence notes appear in the candidate's
+**Admin notes** field. AI research is still fallible, so owner verification remains
+mandatory.
+
+### Enable the Daily Run
+
+1. Open the GitHub repository.
+2. Go to **Settings > Secrets and variables > Actions**.
+3. Under **Secrets**, add `OPENAI_API_KEY` with an OpenAI API project key.
+4. Optional: under **Variables**, add `OPENAI_MODEL`. The default is `gpt-5.6`.
+5. Optional: add `SUPABASE_URL` and `SUPABASE_ANON_KEY` as repository variables.
+   The script otherwise uses the same public project URL and publishable key as the site.
+6. Open **Actions > Research curator candidates > Run workflow** to test manually.
+
+The scheduled workflow runs at `00:00 UTC`, which is `08:00` in Shanghai. OpenAI API
+usage is billed separately from a ChatGPT subscription. No service-role key, database
+password, or GitHub token is placed in the frontend or research script.
+
+The workflow uses the existing anonymous insert-only RLS policy. It can add a pending
+submission, but it cannot read the review queue, approve a case, edit published cases,
+or publish into `public.images`.
+
+### Pilot Batch
+
+The first manually researched batch is stored in
+`research/pilot-candidates-2026-08-23.json`. To validate it without writing to
+Supabase:
+
+```bash
+CANDIDATE_COUNT=10 DRY_RUN=true node tools/generate-curator-candidates.mjs \
+  --import research/pilot-candidates-2026-08-23.json
+```
+
+Omit `DRY_RUN=true` only when intentionally placing that batch into the pending queue.
+Duplicate protection prevents the same pending research candidate from being inserted
+twice.
 
 ## Deploy With GitHub Pages
 

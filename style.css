@@ -1414,6 +1414,19 @@ textarea {
   font-weight: 800;
 }
 
+.research-status-pill {
+  color: #fff9ed;
+  background: var(--burgundy);
+}
+
+.research-review-note {
+  margin: 0.35rem 0 0.9rem;
+  padding: 0.7rem 0.8rem;
+  border-left: 3px solid var(--gold);
+  background: rgba(184, 138, 59, 0.09);
+  color: var(--muted);
+}
+
 .image-picker {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));

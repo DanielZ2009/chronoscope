@@ -2140,12 +2140,14 @@ function renderCuratorSubmissionCard(entry, editable) {
   const tags = Array.isArray(entry.tags) ? entry.tags.join(", ") : "";
   const difficulty = cleanString(entry.difficulty) || "medium";
   const submittedBy = [entry.submitter_name, entry.submitter_contact].map(cleanString).filter(Boolean).join(" | ") || "Not provided";
+  const isResearchCandidate = cleanString(entry.submitter_name) === "Chronoscope Research Assistant";
 
   return `
     <article class="curator-card" data-curator-submission-id="${escapeAttribute(entry.id)}">
       <div class="curator-preview">
         <img src="${escapeAttribute(safeImageUrl(entry.image_url))}" alt="${escapeAttribute(entry.title || "Submitted image")}" />
         <span class="status-pill">${escapeHtml(entry.status || "pending")}</span>
+        ${isResearchCandidate ? '<span class="status-pill research-status-pill">Research candidate</span>' : ""}
       </div>
       <div>
         <div class="curator-card-head">
@@ -2159,6 +2161,11 @@ function renderCuratorSubmissionCard(entry, editable) {
           <div><span>Submitter</span><strong>${escapeHtml(submittedBy)}</strong></div>
           <div><span>Original status</span><strong>${escapeHtml(entry.status || "pending")}</strong></div>
         </div>
+        ${
+          isResearchCandidate
+            ? '<p class="research-review-note"><strong>Curator check:</strong> confirm the pin, exact year, direct image, and reuse rights against the dossier before publishing.</p>'
+            : ""
+        }
         <form class="curator-edit-grid" data-curator-form="${escapeAttribute(entry.id)}">
           ${renderCuratorInput("Title", "title", entry.title, "input", true)}
           ${renderCuratorInput("Image URL", "image_url", entry.image_url, "input", true)}
