@@ -164,6 +164,7 @@ function getAnalyticsPageTitle(viewName) {
 
 async function initMainPage() {
   bindNavigation();
+  setStartControlsReady(false);
   bindGameControls();
   bindSubmissionLocationControls();
   bindSubmissionForm();
@@ -177,6 +178,14 @@ async function initMainPage() {
   await loadPublicQuestionSets();
   await loadImageData();
   applyHomeGallery();
+  setStartControlsReady(state.images.length > 0);
+}
+
+function setStartControlsReady(isReady) {
+  $$('[data-action="start-game"]').forEach((control) => {
+    control.disabled = !isReady;
+    control.setAttribute("aria-busy", String(!isReady));
+  });
 }
 
 function bindNavigation() {
