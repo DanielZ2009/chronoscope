@@ -143,7 +143,7 @@ Chronoscope prioritizes the newest approved Supabase cases in the daily game. If
 
 ## Public Submission Flow
 
-The public **Submit a Photograph** form inserts into `public.submissions` with:
+The public **Submit an Image** form inserts into `public.submissions` with:
 
 ```text
 status = pending
@@ -272,7 +272,7 @@ If events do not appear immediately, try GA4 **DebugView** or test from a browse
 ## Testing Checklist
 
 1. Open public site.
-2. Submit a test photograph.
+2. Submit a test image.
 3. Confirm it appears in Supabase `submissions`.
 4. Open `admin.html`.
 5. Log in as owner.

@@ -13,7 +13,8 @@
     <link rel="icon" href="assets/chronoscope-wax-seal-256.png" type="image/png" />
     <link rel="apple-touch-icon" href="assets/chronoscope-wax-seal-256.png" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <link rel="stylesheet" href="style.css?v=chronoscope-18" />
+    <meta name="theme-color" content="#741916" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-19" />
     <!-- Google tag (gtag.js). Public pages only; admin.html intentionally omits analytics. -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-4NTPNH9KXJ"></script>
     <script>
@@ -24,7 +25,7 @@
     </script>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-18" defer></script>
+    <script src="script.js?v=chronoscope-19" defer></script>
   </head>
   <body data-page="main">
     <header class="site-header">
@@ -34,7 +35,7 @@
         </span>
         <span>
           <strong>Chronoscope</strong>
-          <small>Place and time</small>
+          <small>Archive &middot; atlas &middot; time</small>
         </span>
       </a>
 
@@ -49,32 +50,40 @@
     <main class="app-shell">
       <section class="screen is-active home-screen" data-view="home" id="home">
         <div class="chronoscope-hero">
-          <p class="kicker hero-kicker">Archive images &middot; map guessing &middot; time detection</p>
+          <div class="hero-rule" aria-hidden="true">
+            <span>Visual history</span>
+            <span>Geographic inference</span>
+          </div>
+          <p class="kicker hero-kicker">Image &middot; map &middot; time</p>
           <div class="logo-placeholder" aria-label="Chronoscope compass wax seal">
             <img src="assets/chronoscope-wax-seal.png" alt="Chronoscope compass wax seal" />
           </div>
           <h1>Chronoscope</h1>
-          <p class="hero-question">Where was this taken, and when?</p>
+          <p class="hero-question">Where does this image show, and when?</p>
           <p class="lead">
-            Study an archival image, place it on the map, estimate its year,
-            then uncover the story behind the image.
+            Read the image closely. Place its subject on the map, estimate its
+            year, then open the historical record.
           </p>
           <p class="how-to-play-note">
-            Guess the place depicted in the image, not the museum, archive, or
-            present-day location where the object is kept.
+            <strong>Placement note</strong>
+            Guess the place depicted, not the archive or museum holding the object.
           </p>
           <div class="button-row hero-actions">
             <button class="primary-button" type="button" data-action="start-game">
               Play Today's Game
             </button>
             <button class="text-button" type="button" data-view-target="submit">
-              Submit a Photograph
+              Submit an Image
             </button>
           </div>
           <p class="sr-only" id="dataStatus" aria-live="polite"></p>
         </div>
 
         <div class="home-lower" aria-label="Featured archival previews">
+          <div class="collection-intro">
+            <p class="kicker">Selected records</p>
+            <h2>From the archive</h2>
+          </div>
           <div class="archive-triptych">
             <figure class="archive-teaser archive-primary is-empty">
               <img
@@ -120,8 +129,8 @@
             <h2 id="roundTitle">Round 1</h2>
           </div>
           <div class="round-meta">
-            <span id="roundCounter">Round 1 of 5</span>
-            <span id="scorePreview">Score 0 / 25,000</span>
+            <span><small>Progress</small><strong id="roundCounter">Round 1 of 5</strong></span>
+            <span><small>Running score</small><strong id="scorePreview">0 / 25,000</strong></span>
           </div>
         </div>
 
@@ -163,11 +172,13 @@
               </div>
             </section>
 
-            <figure>
-              <img id="imageImage" src="" alt="Historical image for this round" />
-              <button class="image-open-button" type="button" id="openImageInspector">
-                Inspect Image
-              </button>
+            <figure class="archive-plate">
+              <div class="image-stage">
+                <img id="imageImage" src="" alt="Historical image for this round" />
+                <button class="image-open-button" type="button" id="openImageInspector">
+                  Inspect Image
+                </button>
+              </div>
               <figcaption id="imageCaption">Study the image, choose a date, and place it on the map.</figcaption>
             </figure>
           </article>
@@ -224,9 +235,9 @@
       <section class="screen submit-screen" data-view="submit" id="submit">
         <div class="section-heading">
           <p class="kicker">Archive contribution</p>
-          <h2>Submit a Photograph</h2>
+          <h2>Submit an Image</h2>
           <p>
-            Propose an archival photograph for review. No submission enters the
+            Propose a historical photograph, painting, or other image for review. No submission enters the
             game until it has been verified for source, date, location, and rights.
           </p>
         </div>
@@ -309,11 +320,10 @@
           </form>
 
           <section class="generated-panel">
-            <h3>Submission Record</h3>
+            <h3>Submission Receipt</h3>
             <p>
-              With Supabase configured, your proposal goes directly to the
-              private review table. If that fails, a copyable backup record
-              appears here.
+              Your proposal is sent privately to the curator. If the archive
+              cannot be reached, a copyable backup will appear here instead.
             </p>
             <textarea id="generatedSubmission" readonly rows="18"></textarea>
             <div class="button-row">
@@ -371,7 +381,7 @@
     <footer class="site-footer">
       <span>Chronoscope</span>
       <span>
-        A map game for archival images
+        An atlas for reading images across place and time
         <a class="repair-link" href="admin.html">Curator</a>
       </span>
     </footer>

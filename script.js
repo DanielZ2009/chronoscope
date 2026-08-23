@@ -2685,7 +2685,7 @@ function renderAdminSubmissions() {
         <div></div>
         <div>
           <h3>No pending submissions</h3>
-          <p>Use the public Submit a Photograph page to generate a local review entry.</p>
+          <p>Use the public Submit an Image page to generate a local review entry.</p>
         </div>
       </section>
     `;
