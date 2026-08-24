@@ -14,6 +14,7 @@ const IMAGE_DATA_URL = "data/images.json";
 const SITE_SETTINGS_URL = "data/site_settings.json";
 const SITE_SETTINGS_RECORD_KEY = "public";
 const GA_MEASUREMENT_ID = "G-4NTPNH9KXJ";
+const OFFICIAL_SITE_URL = "https://chronoscope.world/";
 
 // Supabase frontend config. Paste only the project URL and anon/publishable key.
 // Leave these blank to keep using the JSON fallback only.
@@ -25,6 +26,7 @@ const APPROVED_STORAGE_KEY = "historyImageDetective.approvedImages.v1";
 const REJECTED_STORAGE_KEY = "historyImageDetective.rejectedSubmissions.v1";
 const QUESTION_SETS_STORAGE_KEY = "historyImageDetective.questionSets.v1";
 const OWNER_SETTINGS_STORAGE_KEY = "historyImageDetective.ownerSettings.v1";
+const PLAYER_RECORD_STORAGE_KEY = "chronoscope.playerRecord.v1";
 
 const DEFAULT_ROUND_COUNT = 5;
 const MIN_ROUNDS = 1;
@@ -96,17 +98,22 @@ const state = {
   confirmedSubmissionLatLng: null,
   publicSettings: DEFAULT_OWNER_SETTINGS,
   publicQuestionSets: [],
+  dailyChallenges: [],
+  activeChallenge: null,
+  resultRecorded: false,
   supabaseClient: null,
   dataSource: "json",
   isSubmitting: false,
   activeView: "home",
   guessMode: "where",
+  initialRouteApplied: false,
 };
 
 const adminState = {
   staticImages: [],
   images: [],
   questionSets: [],
+  dailyChallenges: [],
   bound: false,
 };
 
@@ -156,6 +163,7 @@ function getAnalyticsPageTitle(viewName) {
   const labels = {
     home: "Chronoscope",
     game: "Chronoscope - Game",
+    archive: "Chronoscope - Archive",
     submit: "Chronoscope - Submit",
     about: "Chronoscope - About",
     results: "Chronoscope - Results",
@@ -177,9 +185,12 @@ async function initMainPage() {
 
   await loadSiteSettings();
   await loadPublicQuestionSets();
+  await loadPublicDailyChallenges();
   await loadImageData();
   applyHomeGallery();
+  renderPublicArchive();
   setStartControlsReady(state.images.length > 0);
+  applyInitialChallengeRoute();
 }
 
 function setStartControlsReady(isReady) {
@@ -200,6 +211,18 @@ function bindNavigation() {
   $$("[data-action='start-game']").forEach((control) => {
     control.addEventListener("click", () => startGame());
   });
+
+  $$("[data-action='start-practice']").forEach((control) => {
+    control.addEventListener("click", () => startPracticeGame());
+  });
+
+  $$("[data-action='replay-challenge']").forEach((control) => {
+    control.addEventListener("click", replayActiveChallenge);
+  });
+
+  $("#dailyArchiveList")?.addEventListener("click", handlePublicArchiveAction);
+  $("#archiveCollectionList")?.addEventListener("click", handlePublicArchiveAction);
+  $("#clearPlayerRecord")?.addEventListener("click", clearPlayerRecord);
 }
 
 function showView(viewName) {
@@ -209,7 +232,7 @@ function showView(viewName) {
 
   const previousView = state.activeView;
   state.activeView = viewName;
-  document.body.classList.remove("view-home", "view-game", "view-results", "view-submit", "view-about");
+  document.body.classList.remove("view-home", "view-game", "view-results", "view-submit", "view-about", "view-archive");
   document.body.classList.add(`view-${viewName}`);
 
   if (viewName === "game" && state.map) {
@@ -282,7 +305,7 @@ function setHomeImageSlot(selector, value) {
 
 function applyHashRoute() {
   const viewName = location.hash.replace("#", "");
-  if (["home", "submit", "about"].includes(viewName)) {
+  if (["home", "archive", "submit", "about"].includes(viewName)) {
     showView(viewName);
   }
 }
@@ -419,7 +442,237 @@ async function fetchSupabaseQuestionSets() {
     throw error;
   }
 
-  return (data || []).map(normalizeQuestionSetRow).filter((set) => set.id && set.title);
+  return (data || [])
+    .map(normalizeQuestionSetRow)
+    .filter((set) => set.id && set.title && set.isPublic);
+}
+
+async function loadPublicDailyChallenges() {
+  try {
+    state.dailyChallenges = await fetchSupabaseDailyChallenges();
+  } catch (error) {
+    state.dailyChallenges = [];
+    if (!isMissingRelationError(error, "daily_challenges")) {
+      console.warn("Dated challenges could not load; the regular game remains available.", error);
+    }
+  }
+}
+
+async function fetchSupabaseDailyChallenges() {
+  const client = getSupabaseClient();
+  if (!client) {
+    return [];
+  }
+
+  const { data, error } = await client
+    .from("daily_challenges")
+    .select("*")
+    .eq("published", true)
+    .lte("challenge_date", getLocalDateKey())
+    .order("challenge_date", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return (data || [])
+    .map(normalizeDailyChallengeRow)
+    .filter((challenge) => challenge.date && challenge.imageIds.length > 0);
+}
+
+function renderPublicArchive() {
+  renderPlayerRecord();
+  renderDailyArchive();
+  renderPublicCollections();
+}
+
+function renderDailyArchive() {
+  const container = $("#dailyArchiveList");
+  if (!container) {
+    return;
+  }
+
+  if (state.dailyChallenges.length === 0) {
+    container.innerHTML = `
+      <div class="archive-empty-row">
+        <strong>No dated editions yet</strong>
+        <span>The regular game and curator collections remain available.</span>
+      </div>
+    `;
+    return;
+  }
+
+  const completedDailyKeys = new Set(
+    readPlayerRecord().sessions
+      .filter((session) => session.type === "daily")
+      .map((session) => session.key)
+  );
+
+  container.innerHTML = state.dailyChallenges
+    .map((challenge) => {
+      const complete = completedDailyKeys.has(`daily:${challenge.date}`)
+        ? '<span class="archive-complete">Read</span>'
+        : "";
+      return `
+        <article class="archive-row">
+          <time datetime="${escapeAttribute(challenge.date)}">${escapeHtml(formatArchiveDate(challenge.date))}</time>
+          <div>
+            <h4>${escapeHtml(challenge.title)}</h4>
+            <p>${challenge.imageIds.length} case${challenge.imageIds.length === 1 ? "" : "s"}</p>
+          </div>
+          ${complete}
+          <button class="secondary-button compact-button" type="button" data-action="play-daily" data-challenge-date="${escapeAttribute(challenge.date)}">
+            Open
+          </button>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderPublicCollections() {
+  const container = $("#archiveCollectionList");
+  if (!container) {
+    return;
+  }
+
+  const sets = state.publicQuestionSets.filter((set) => set.isPublic && set.imageIds.length > 0);
+  if (sets.length === 0) {
+    container.innerHTML = `
+      <div class="archive-empty-row">
+        <strong>No public collections yet</strong>
+        <span>Curator selections will appear here when published.</span>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = sets
+    .map(
+      (set) => `
+        <article class="archive-row collection-row">
+          <span class="collection-index">${String(set.imageIds.length).padStart(2, "0")}</span>
+          <div>
+            <h4>${escapeHtml(set.title)}</h4>
+            <p>${escapeHtml(set.description || "A curator-selected group of historical cases.")}</p>
+          </div>
+          <button class="secondary-button compact-button" type="button" data-action="play-collection" data-set-id="${escapeAttribute(set.id)}">
+            Open
+          </button>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function showArchiveMessage(message = "") {
+  const status = $("#archiveStatus");
+  if (status) {
+    status.textContent = message;
+  }
+}
+
+function formatArchiveDate(dateValue) {
+  const date = new Date(`${dateValue}T12:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return dateValue;
+  }
+  return new Intl.DateTimeFormat("en", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+function readPlayerRecord() {
+  const stored = readJsonStorage(PLAYER_RECORD_STORAGE_KEY, { sessions: [] });
+  const sessions = Array.isArray(stored?.sessions) ? stored.sessions : [];
+  return {
+    sessions: sessions
+      .filter((session) => session && session.key && Number.isFinite(Number(session.percent)))
+      .slice(0, 200),
+  };
+}
+
+function savePlayerResult(totalScore, maxScore, rating) {
+  const record = readPlayerRecord();
+  const context = state.activeChallenge || {};
+  const percent = scorePercentage(totalScore, maxScore);
+  const session = {
+    id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    key: cleanString(context.key) || `session:${Date.now()}`,
+    type: cleanString(context.type) || "selection",
+    label: cleanString(context.label) || "Chronoscope Game",
+    challengeDate: cleanString(context.date),
+    completedDate: getLocalDateKey(),
+    completedAt: new Date().toISOString(),
+    score: totalScore,
+    maxScore,
+    percent,
+    rating,
+    roundCount: state.rounds.length,
+  };
+
+  record.sessions.unshift(session);
+  writeJsonStorage(PLAYER_RECORD_STORAGE_KEY, { sessions: record.sessions.slice(0, 200) });
+  renderPlayerRecord();
+  return getPlayerRecordSummary(record.sessions);
+}
+
+function getPlayerRecordSummary(sessions = readPlayerRecord().sessions) {
+  const totalCases = sessions.reduce((sum, session) => sum + (Number(session.roundCount) || 0), 0);
+  const bestPercent = sessions.reduce((best, session) => Math.max(best, Number(session.percent) || 0), 0);
+  const validDailyDates = new Set(
+    sessions
+      .filter(
+        (session) =>
+          session.type === "daily" &&
+          session.challengeDate &&
+          session.challengeDate === session.completedDate
+      )
+      .map((session) => session.challengeDate)
+  );
+
+  let streak = 0;
+  const cursor = new Date(`${getLocalDateKey()}T12:00:00`);
+  while (validDailyDates.has(getLocalDateKey(cursor))) {
+    streak += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return {
+    games: sessions.length,
+    cases: totalCases,
+    bestPercent,
+    dailyDays: validDailyDates.size,
+    streak,
+  };
+}
+
+function renderPlayerRecord() {
+  const container = $("#playerRecordMetrics");
+  if (!container) {
+    return;
+  }
+
+  const summary = getPlayerRecordSummary();
+  container.innerHTML = [
+    ["Sessions", summary.games],
+    ["Cases read", summary.cases],
+    ["Best reading", `${summary.bestPercent}%`],
+    ["Daily streak", `${summary.streak} day${summary.streak === 1 ? "" : "s"}`],
+  ]
+    .map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>`)
+    .join("");
+}
+
+function clearPlayerRecord() {
+  if (!window.confirm("Clear the Chronoscope record stored on this device?")) {
+    return;
+  }
+  localStorage.removeItem(PLAYER_RECORD_STORAGE_KEY);
+  renderPublicArchive();
+  showArchiveMessage("The record on this device has been cleared.");
 }
 
 // This is the only public data load for the game. On GitHub Pages this fetches
@@ -509,6 +762,20 @@ function normalizeQuestionSetRow(row) {
     title: cleanString(row.title),
     description: cleanString(row.description),
     imageIds: Array.isArray(row.image_ids) ? row.image_ids.map(cleanString).filter(Boolean) : [],
+    isPublic: row.is_public !== false,
+    createdAt: cleanString(row.created_at),
+    updatedAt: cleanString(row.updated_at),
+  };
+}
+
+function normalizeDailyChallengeRow(row) {
+  return {
+    date: cleanString(row.challenge_date),
+    title: cleanString(row.title) || "Daily Challenge",
+    imageIds: Array.isArray(row.image_ids) ? row.image_ids.map(cleanString).filter(Boolean) : [],
+    questionSetId: cleanString(row.question_set_id),
+    roundCount: getConfiguredRoundCount({ roundsPerGame: row.round_count }),
+    published: row.published === true,
     createdAt: cleanString(row.created_at),
     updatedAt: cleanString(row.updated_at),
   };
@@ -743,6 +1010,11 @@ function updateTimelineMarker(year) {
 }
 
 function startGame() {
+  const todayChallenge = state.dailyChallenges.find((challenge) => challenge.date === getLocalDateKey());
+  if (todayChallenge && startDailyChallenge(todayChallenge.date)) {
+    return;
+  }
+
   const settings = readPublicGameSettings();
   state.images = resolvePublicGameImagePool(state.staticImages, settings);
 
@@ -756,19 +1028,37 @@ function startGame() {
   }
 
   const roundCount = Math.min(getConfiguredRoundCount(settings), state.images.length);
-  // TODO: Expand deterministic daily challenge mode with past-day archives and shareable daily IDs.
   const pool = selectDailyRoundPool(state.images, roundCount, settings);
 
-  state.rounds = pool.slice(0, roundCount);
+  beginGame(pool.slice(0, roundCount), {
+    type: "selection",
+    key: `selection:${getLocalDateKey()}:${pool.slice(0, roundCount).map((image) => image.id).join(",")}`,
+    label: cleanString(settings.activeSetName) || "Today's Selection",
+    date: getLocalDateKey(),
+    shareUrl: OFFICIAL_SITE_URL,
+  });
+}
+
+function beginGame(rounds, challengeContext) {
+  const playableRounds = rounds.filter(isPlayableImage);
+  if (playableRounds.length === 0) {
+    showArchiveMessage("This entry has no playable cases available.");
+    showView("archive");
+    return false;
+  }
+
+  state.rounds = playableRounds;
   state.results = [];
   state.currentRoundIndex = 0;
   state.guess = null;
   state.isRevealed = false;
+  state.activeChallenge = challengeContext;
+  state.resultRecorded = false;
 
   trackAnalyticsEvent("start_game", {
     round_count: state.rounds.length,
-    active_set_id: settings.activeSetId,
-    active_set_name: settings.activeSetName,
+    challenge_type: challengeContext?.type || "selection",
+    challenge_key: challengeContext?.key || "",
     data_source: state.dataSource,
   });
 
@@ -779,6 +1069,105 @@ function startGame() {
     initMap();
     loadRound();
   });
+
+  return true;
+}
+
+function startDailyChallenge(date) {
+  const challenge = state.dailyChallenges.find((entry) => entry.date === date);
+  if (!challenge) {
+    showArchiveMessage("That dated challenge is not available in the public archive.");
+    return false;
+  }
+
+  const rounds = resolveImagesByIds(challenge.imageIds).slice(0, challenge.roundCount);
+  return beginGame(rounds, {
+    type: "daily",
+    key: `daily:${challenge.date}`,
+    label: challenge.title,
+    date: challenge.date,
+    shareUrl: `${OFFICIAL_SITE_URL}?daily=${encodeURIComponent(challenge.date)}`,
+  });
+}
+
+function startQuestionSet(setId) {
+  const set = state.publicQuestionSets.find((entry) => entry.id === setId && entry.isPublic);
+  if (!set) {
+    showArchiveMessage("That collection is not available in the public archive.");
+    return false;
+  }
+
+  const rounds = resolveImagesByIds(set.imageIds);
+  return beginGame(rounds, {
+    type: "collection",
+    key: `collection:${set.id}`,
+    label: set.title,
+    setId: set.id,
+    shareUrl: `${OFFICIAL_SITE_URL}?set=${encodeURIComponent(set.id)}`,
+  });
+}
+
+function startPracticeGame() {
+  const images = state.staticImages.filter(isPlayableImage);
+  const roundCount = Math.min(getConfiguredRoundCount(readPublicGameSettings()), images.length);
+  const rounds = seededShuffle([...images], `practice:${Date.now()}`).slice(0, roundCount);
+  beginGame(rounds, {
+    type: "practice",
+    key: `practice:${Date.now()}`,
+    label: "Archive Practice",
+    shareUrl: `${OFFICIAL_SITE_URL}#archive`,
+  });
+}
+
+function replayActiveChallenge() {
+  const rounds = [...state.rounds];
+  const context = state.activeChallenge ? { ...state.activeChallenge } : null;
+  if (rounds.length && context) {
+    beginGame(rounds, context);
+    return;
+  }
+  startGame();
+}
+
+function resolveImagesByIds(imageIds) {
+  const byId = new Map(state.staticImages.map((image) => [String(image.id), image]));
+  return imageIds.map((id) => byId.get(String(id))).filter(Boolean);
+}
+
+function handlePublicArchiveAction(event) {
+  const button = event.target.closest("button[data-action]");
+  if (!button) {
+    return;
+  }
+
+  if (button.dataset.action === "play-daily") {
+    startDailyChallenge(button.dataset.challengeDate);
+  }
+  if (button.dataset.action === "play-collection") {
+    startQuestionSet(button.dataset.setId);
+  }
+}
+
+function applyInitialChallengeRoute() {
+  if (state.initialRouteApplied) {
+    return;
+  }
+  state.initialRouteApplied = true;
+
+  const params = new URLSearchParams(window.location.search);
+  const dailyDate = cleanString(params.get("daily"));
+  const setId = cleanString(params.get("set"));
+  if (dailyDate) {
+    if (!startDailyChallenge(dailyDate)) {
+      showView("archive");
+    }
+    return;
+  }
+  if (setId) {
+    if (!startQuestionSet(setId)) {
+      showView("archive");
+    }
+  }
 }
 
 function initMap() {
@@ -1144,13 +1533,20 @@ function showResults() {
   $("#ratingTitle").textContent = `${rating} - ${scorePercent}%`;
   $("#roundBreakdown").innerHTML = renderRoundTable(state.results);
 
+  const recordSummary = state.resultRecorded
+    ? getPlayerRecordSummary()
+    : savePlayerResult(totalScore, maxScore, rating);
+  state.resultRecorded = true;
+  $("#resultRecordNote").textContent = `${state.activeChallenge?.label || "Chronoscope Game"} recorded on this device. Current daily streak: ${recordSummary.streak}.`;
+
   const shareText = [
     "Chronoscope",
+    getShareChallengeLabel(),
     `${formatNumber(totalScore)} / ${formatNumber(maxScore)}`,
     "I placed images in space and time.",
-    "chronoscope.world",
+    state.activeChallenge?.shareUrl || OFFICIAL_SITE_URL,
     "Can you read the traces?",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
   $("#shareText").value = shareText;
   $("#copyResultStatus").textContent = "";
@@ -1168,6 +1564,14 @@ function showResults() {
     score_percent: scorePercent,
   });
   showView("results");
+}
+
+function getShareChallengeLabel() {
+  const context = state.activeChallenge || {};
+  if (context.type === "daily" && context.date) {
+    return `${context.label || "Daily Challenge"} | ${formatArchiveDate(context.date)}`;
+  }
+  return cleanString(context.label);
 }
 
 function renderRoundTable(results) {
@@ -1542,6 +1946,11 @@ function isMissingColumnError(error, columnName) {
   return error?.code === "PGRST204" || message.includes(columnName);
 }
 
+function isMissingRelationError(error, relationName) {
+  const message = `${error?.message || ""} ${error?.details || ""}`;
+  return error?.code === "PGRST205" || message.includes(relationName);
+}
+
 function bindCopyButtons() {
   const copySubmission = $("#copySubmission");
   if (copySubmission) {
@@ -1662,6 +2071,8 @@ function bindCuratorAdmin() {
     approvedList.addEventListener("click", handleCuratorImageAction);
   }
 
+  $("#approvedImageFilter")?.addEventListener("input", filterCuratorApprovedImages);
+
   const questionSetForm = $("#curatorQuestionSetForm");
   if (questionSetForm) {
     questionSetForm.addEventListener("submit", saveCuratorQuestionSet);
@@ -1691,6 +2102,10 @@ function bindCuratorAdmin() {
   if (questionSetList) {
     questionSetList.addEventListener("click", handleCuratorQuestionSetAction);
   }
+
+  $("#curatorDailyChallengeForm")?.addEventListener("submit", saveCuratorDailyChallenge);
+  $("#clearCuratorDailyForm")?.addEventListener("click", clearCuratorDailyChallengeForm);
+  $("#curatorDailyChallengeList")?.addEventListener("click", handleCuratorDailyChallengeAction);
 }
 
 function showCuratorLogin(message = "") {
@@ -1727,8 +2142,9 @@ async function loadCuratorDashboard() {
   renderCuratorPendingSubmissions([]);
   renderCuratorApprovedImages([]);
   renderCuratorRejectedSubmissions([]);
+  renderCuratorDailyChallenges([], [], []);
 
-  const [submissionsLoad, imagesLoad, questionSetsLoad] = await Promise.allSettled([
+  const [submissionsLoad, imagesLoad, questionSetsLoad, dailyChallengesLoad] = await Promise.allSettled([
     querySupabaseWithTimeout(
       client.from("submissions").select("*").order("created_at", { ascending: false }),
       "submissions"
@@ -1741,12 +2157,17 @@ async function loadCuratorDashboard() {
       client.from("question_sets").select("*").order("created_at", { ascending: true }),
       "question sets"
     ),
+    querySupabaseWithTimeout(
+      client.from("daily_challenges").select("*").order("challenge_date", { ascending: false }),
+      "daily challenges"
+    ),
   ]);
 
   const errors = [];
   let submissions = [];
   let images = [];
   let questionSets = [];
+  let dailyChallenges = [];
 
   if (submissionsLoad.status === "fulfilled") {
     if (submissionsLoad.value.error) {
@@ -1778,16 +2199,28 @@ async function loadCuratorDashboard() {
     errors.push(`question sets: ${formatSupabaseError(questionSetsLoad.reason)}`);
   }
 
+  if (dailyChallengesLoad.status === "fulfilled") {
+    if (dailyChallengesLoad.value.error) {
+      errors.push(`daily challenges: ${formatSupabaseError(dailyChallengesLoad.value.error)}`);
+    } else {
+      dailyChallenges = (dailyChallengesLoad.value.data || []).map(normalizeDailyChallengeRow);
+    }
+  } else {
+    errors.push(`daily challenges: ${formatSupabaseError(dailyChallengesLoad.reason)}`);
+  }
+
   try {
     const pending = submissions.filter((entry) => entry.status === "pending");
     const rejected = submissions.filter((entry) => entry.status === "rejected");
     adminState.images = images;
     adminState.questionSets = questionSets;
+    adminState.dailyChallenges = dailyChallenges;
 
     renderCuratorPendingSubmissions(pending);
     renderCuratorApprovedImages(images);
     renderCuratorRejectedSubmissions(rejected);
     renderCuratorQuestionSets(images, questionSets);
+    renderCuratorDailyChallenges(images, questionSets, dailyChallenges);
 
     const loadedMessage = `${pending.length} pending submission${pending.length === 1 ? "" : "s"} ready for review.`;
     $("#curatorStatus").textContent = errors.length
@@ -1920,8 +2353,13 @@ function renderCuratorPendingSubmissions(submissions) {
 
 function renderCuratorApprovedImages(images) {
   const container = $("#approvedImagesList");
+  const count = $("#approvedImageCount");
   if (!container) {
     return;
+  }
+
+  if (count) {
+    count.textContent = `${images.length} approved case${images.length === 1 ? "" : "s"}. Select a row to inspect or edit it.`;
   }
 
   if (images.length === 0) {
@@ -1930,6 +2368,24 @@ function renderCuratorApprovedImages(images) {
   }
 
   container.innerHTML = images.map(renderCuratorImageCard).join("");
+  filterCuratorApprovedImages();
+}
+
+function filterCuratorApprovedImages() {
+  const query = cleanString($("#approvedImageFilter")?.value).toLowerCase();
+  let visible = 0;
+  $$("#approvedImagesList [data-curator-image-id]").forEach((row) => {
+    const matches = !query || (row.dataset.search || "").includes(query);
+    row.hidden = !matches;
+    if (matches) {
+      visible += 1;
+    }
+  });
+
+  const count = $("#approvedImageCount");
+  if (count && query) {
+    count.textContent = `${visible} matching case${visible === 1 ? "" : "s"}.`;
+  }
 }
 
 function renderCuratorRejectedSubmissions(submissions) {
@@ -2030,10 +2486,11 @@ function renderCuratorQuestionSetList(sets) {
   container.innerHTML = sets
     .map((set) => {
       const active = set.id === activeSetId ? `<span class="status-pill">Active</span>` : "";
+      const archiveStatus = set.isPublic ? `<span class="status-pill">Archive</span>` : `<span class="status-pill">Private</span>`;
       return `
         <article class="question-set-card" data-curator-question-set-id="${escapeAttribute(set.id)}">
           <div>
-            <h3>${escapeHtml(set.title)} ${active}</h3>
+            <h3>${escapeHtml(set.title)} ${active} ${archiveStatus}</h3>
             <p>${escapeHtml(set.description || "No description.")}</p>
             <p class="source-line">${set.imageIds.length} case${set.imageIds.length === 1 ? "" : "s"} | ID: ${escapeHtml(set.id)}</p>
           </div>
@@ -2064,6 +2521,9 @@ function clearCuratorQuestionSetForm() {
   setInputValue("#curatorQuestionSetTitle", "");
   setInputValue("#curatorQuestionSetId", "");
   setInputValue("#curatorQuestionSetDescription", "");
+  if ($("#curatorQuestionSetPublic")) {
+    $("#curatorQuestionSetPublic").checked = true;
+  }
   renderCuratorQuestionImagePicker(adminState.images, []);
   const status = $("#curatorQuestionSetStatus");
   if (status) {
@@ -2080,6 +2540,9 @@ function loadCuratorQuestionSetIntoForm(setId) {
   setInputValue("#curatorQuestionSetTitle", set.title);
   setInputValue("#curatorQuestionSetId", set.id);
   setInputValue("#curatorQuestionSetDescription", set.description);
+  if ($("#curatorQuestionSetPublic")) {
+    $("#curatorQuestionSetPublic").checked = set.isPublic;
+  }
   renderCuratorQuestionImagePicker(adminState.images, set.imageIds);
   $("#curatorQuestionSetStatus").textContent = `Editing "${set.title}".`;
 }
@@ -2093,6 +2556,7 @@ async function saveCuratorQuestionSet(event) {
   const id = slugify($("#curatorQuestionSetId")?.value || title);
   const description = cleanString($("#curatorQuestionSetDescription")?.value);
   const imageIds = getCuratorSelectedImageIds();
+  const isPublic = $("#curatorQuestionSetPublic")?.checked !== false;
 
   if (!title || !id) {
     status.textContent = "Add a set title first.";
@@ -2109,10 +2573,11 @@ async function saveCuratorQuestionSet(event) {
     title,
     description: description || null,
     image_ids: imageIds,
+    is_public: isPublic,
   });
 
   if (error) {
-    status.textContent = `Could not save question set: ${formatSupabaseError(error)}. Run migration 004_question_sets_and_submission_dedupe.sql if needed.`;
+    status.textContent = `Could not save question set: ${formatSupabaseError(error)}. Run migration 005_daily_challenges_and_archive.sql if needed.`;
     return;
   }
 
@@ -2191,6 +2656,178 @@ async function deleteCuratorQuestionSet(setId) {
   clearCuratorQuestionSetForm();
   $("#curatorQuestionSetStatus").textContent = "Question set deleted.";
   await refreshCuratorDashboard();
+}
+
+function renderCuratorDailyChallenges(images, sets, challenges) {
+  const sourceSelect = $("#curatorDailySourceSet");
+  if (sourceSelect) {
+    const currentValue = sourceSelect.value;
+    sourceSelect.innerHTML = [
+      `<option value="all">All approved cases</option>`,
+      ...sets.map((set) => `<option value="${escapeAttribute(set.id)}">${escapeHtml(set.title)} (${set.imageIds.length})</option>`),
+    ].join("");
+    sourceSelect.value = sets.some((set) => set.id === currentValue) ? currentValue : "all";
+  }
+
+  if (!$("#curatorDailyDate")?.value) {
+    clearCuratorDailyChallengeForm();
+  }
+
+  const container = $("#curatorDailyChallengeList");
+  if (!container) {
+    return;
+  }
+
+  if (challenges.length === 0) {
+    container.innerHTML = `
+      <div class="archive-empty-row">
+        <strong>No dated challenges published</strong>
+        <span>Use the form above after running migration 005.</span>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = challenges
+    .map((challenge) => {
+      const sourceSet = sets.find((set) => set.id === challenge.questionSetId);
+      return `
+        <article class="daily-challenge-row" data-curator-daily-date="${escapeAttribute(challenge.date)}">
+          <time datetime="${escapeAttribute(challenge.date)}">${escapeHtml(formatArchiveDate(challenge.date))}</time>
+          <div>
+            <strong>${escapeHtml(challenge.title)}</strong>
+            <small>${challenge.imageIds.length} cases${sourceSet ? ` | ${escapeHtml(sourceSet.title)}` : ""}</small>
+          </div>
+          <span class="status-pill">${challenge.published ? "Published" : "Hidden"}</span>
+          <div class="button-row">
+            <button class="secondary-button compact-button" type="button" data-action="edit-daily">Edit</button>
+            <button class="secondary-button compact-button" type="button" data-action="toggle-daily">${challenge.published ? "Hide" : "Publish"}</button>
+            <button class="danger-button compact-button" type="button" data-action="delete-daily">Delete</button>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function clearCuratorDailyChallengeForm() {
+  setInputValue("#curatorDailyDate", getLocalDateKey());
+  setInputValue("#curatorDailyTitle", "Daily Challenge");
+  setInputValue("#curatorDailyRoundCount", getConfiguredRoundCount(readPublicGameSettings()));
+  if ($("#curatorDailySourceSet")) {
+    $("#curatorDailySourceSet").value = "all";
+  }
+  if ($("#curatorDailyChallengeStatus")) {
+    $("#curatorDailyChallengeStatus").textContent = "";
+  }
+}
+
+async function saveCuratorDailyChallenge(event) {
+  event.preventDefault();
+  const status = $("#curatorDailyChallengeStatus");
+  const date = cleanString($("#curatorDailyDate")?.value);
+  const title = cleanString($("#curatorDailyTitle")?.value) || "Daily Challenge";
+  const sourceSetId = cleanString($("#curatorDailySourceSet")?.value) || "all";
+  const requestedCount = getConfiguredRoundCount({ roundsPerGame: $("#curatorDailyRoundCount")?.value });
+  const approvedIds = new Set(adminState.images.filter((image) => image.approved).map((image) => String(image.id)));
+  const sourceSet = sourceSetId === "all"
+    ? null
+    : adminState.questionSets.find((set) => set.id === sourceSetId);
+  const candidateIds = (sourceSet ? sourceSet.imageIds : [...approvedIds])
+    .map(String)
+    .filter((id) => approvedIds.has(id));
+
+  if (!date) {
+    status.textContent = "Choose a challenge date.";
+    return;
+  }
+  if (candidateIds.length === 0) {
+    status.textContent = "The selected source has no approved cases.";
+    return;
+  }
+
+  const existing = adminState.dailyChallenges.find((challenge) => challenge.date === date);
+  if (existing && !window.confirm(`Replace the dated challenge for ${formatArchiveDate(date)}?`)) {
+    return;
+  }
+
+  const imageIds = seededShuffle([...candidateIds], `daily:${date}:${sourceSetId}`).slice(0, requestedCount);
+  status.textContent = "Publishing dated challenge...";
+  const client = getSupabaseClient();
+  const { error } = await client.from("daily_challenges").upsert({
+    challenge_date: date,
+    title,
+    image_ids: imageIds,
+    question_set_id: sourceSet?.id || null,
+    round_count: imageIds.length,
+    published: true,
+  });
+
+  if (error) {
+    status.textContent = `Could not publish: ${formatSupabaseError(error)}. Run migration 005_daily_challenges_and_archive.sql first.`;
+    return;
+  }
+
+  status.textContent = `Published ${imageIds.length} stable case${imageIds.length === 1 ? "" : "s"} for ${formatArchiveDate(date)}.`;
+  await loadCuratorDashboard();
+}
+
+function loadCuratorDailyChallengeIntoForm(date) {
+  const challenge = adminState.dailyChallenges.find((entry) => entry.date === date);
+  if (!challenge) {
+    return;
+  }
+  setInputValue("#curatorDailyDate", challenge.date);
+  setInputValue("#curatorDailyTitle", challenge.title);
+  setInputValue("#curatorDailyRoundCount", challenge.roundCount);
+  if ($("#curatorDailySourceSet")) {
+    $("#curatorDailySourceSet").value = challenge.questionSetId || "all";
+  }
+  $("#curatorDailyChallengeStatus").textContent = `Editing ${formatArchiveDate(challenge.date)}.`;
+}
+
+async function handleCuratorDailyChallengeAction(event) {
+  const button = event.target.closest("button[data-action]");
+  const row = event.target.closest("[data-curator-daily-date]");
+  if (!button || !row) {
+    return;
+  }
+
+  const date = row.dataset.curatorDailyDate;
+  const challenge = adminState.dailyChallenges.find((entry) => entry.date === date);
+  if (!challenge) {
+    return;
+  }
+
+  if (button.dataset.action === "edit-daily") {
+    loadCuratorDailyChallengeIntoForm(date);
+    return;
+  }
+
+  const client = getSupabaseClient();
+  if (button.dataset.action === "toggle-daily") {
+    const { error } = await client
+      .from("daily_challenges")
+      .update({ published: !challenge.published })
+      .eq("challenge_date", date);
+    $("#curatorDailyChallengeStatus").textContent = error
+      ? formatSupabaseError(error)
+      : `${formatArchiveDate(date)} is now ${challenge.published ? "hidden" : "published"}.`;
+    if (!error) {
+      await loadCuratorDashboard();
+    }
+  }
+
+  if (button.dataset.action === "delete-daily") {
+    if (!window.confirm(`Delete the dated challenge for ${formatArchiveDate(date)}?`)) {
+      return;
+    }
+    const { error } = await client.from("daily_challenges").delete().eq("challenge_date", date);
+    $("#curatorDailyChallengeStatus").textContent = error ? formatSupabaseError(error) : "Dated challenge deleted.";
+    if (!error) {
+      await loadCuratorDashboard();
+    }
+  }
 }
 
 function renderCuratorEmptyState(title, body) {
@@ -2288,22 +2925,24 @@ function renderCuratorInput(label, field, value, type = "input", required = fals
 
 function renderCuratorImageCard(row) {
   const year = row.year_range || String(row.year || "");
-  const tags = Array.isArray(row.tags) && row.tags.length ? row.tags.join(", ") : "No tags";
   const editTags = Array.isArray(row.tags) ? row.tags.join(", ") : "";
+  const searchText = [row.title, row.location_name, year, editTags, row.source]
+    .map(cleanString)
+    .join(" ")
+    .toLowerCase();
   return `
-    <article class="curator-card compact-curator-card" data-curator-image-id="${escapeAttribute(row.id)}">
-      <div class="curator-preview">
-        <img src="${escapeAttribute(safeImageUrl(row.image_url))}" alt="${escapeAttribute(row.title || "Approved image")}" />
+    <details class="curator-image-row" data-curator-image-id="${escapeAttribute(row.id)}" data-search="${escapeAttribute(searchText)}">
+      <summary>
+        <img src="${escapeAttribute(safeImageUrl(row.image_url))}" alt="" />
+        <span class="curator-image-summary">
+          <strong>${escapeHtml(row.title || "Untitled image")}</strong>
+          <small>${escapeHtml(row.location_name || "No location")}</small>
+        </span>
+        <time>${escapeHtml(year || "Unknown date")}</time>
         <span class="status-pill">${row.approved ? "Published" : "Hidden"}</span>
-      </div>
-      <div>
-        <h3>${escapeHtml(row.title || "Untitled image")}</h3>
-        <div class="submission-fields">
-          <div><span>Location</span><strong>${escapeHtml(row.location_name || "Not provided")}</strong></div>
-          <div><span>Year</span><strong>${escapeHtml(year)}</strong></div>
-          <div><span>Coordinates</span><strong>${formatCoordinate(row.lat)}, ${formatCoordinate(row.lng)}</strong></div>
-          <div><span>Tags</span><strong>${escapeHtml(tags)}</strong></div>
-        </div>
+        <span class="curator-row-disclosure">Edit</span>
+      </summary>
+      <div class="curator-image-editor">
         <form class="curator-edit-grid" data-curator-image-form="${escapeAttribute(row.id)}">
           ${renderCuratorInput("Title", "title", row.title, "input", true)}
           ${renderCuratorInput("Image URL", "image_url", row.image_url, "input", true)}
@@ -2325,7 +2964,7 @@ function renderCuratorImageCard(row) {
           <button class="danger-button" type="button" data-action="delete-image">Delete</button>
         </div>
       </div>
-    </article>
+    </details>
   `;
 }
 
@@ -3483,10 +4122,13 @@ function sortByNewestPublication(images) {
 }
 
 function getDailySeedKey() {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
+  return getLocalDateKey();
+}
+
+function getLocalDateKey(date = new Date()) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 function hashString(value) {

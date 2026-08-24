@@ -14,9 +14,9 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-20" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-21" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-20" defer></script>
+    <script src="script.js?v=chronoscope-21" defer></script>
   </head>
   <body data-page="admin">
     <header class="site-header">
@@ -158,6 +158,10 @@
               Description
               <textarea id="curatorQuestionSetDescription" rows="2"></textarea>
             </label>
+            <label class="checkbox-field full-span">
+              <input id="curatorQuestionSetPublic" type="checkbox" checked />
+              Show this collection in the public Archive
+            </label>
             <div class="full-span">
               <p class="field-note" id="curatorQuestionSetCount">0 selected</p>
               <div id="curatorQuestionImagePicker" class="image-picker"></div>
@@ -193,6 +197,43 @@
         <section class="owner-card">
           <div class="admin-section-head">
             <div>
+              <p class="kicker">Dated Editions</p>
+              <h2>Daily Challenges</h2>
+            </div>
+          </div>
+          <p>
+            Publish an ordered challenge snapshot for a specific date. Once saved,
+            its cases remain stable even when new material enters the archive.
+          </p>
+          <form id="curatorDailyChallengeForm" class="owner-form curator-daily-form">
+            <label>
+              Challenge date
+              <input id="curatorDailyDate" type="date" required />
+            </label>
+            <label>
+              Public title
+              <input id="curatorDailyTitle" placeholder="Today's Challenge" />
+            </label>
+            <label>
+              Source collection
+              <select id="curatorDailySourceSet"></select>
+            </label>
+            <label>
+              Number of cases
+              <input id="curatorDailyRoundCount" type="number" min="1" max="20" step="1" />
+            </label>
+            <div class="form-actions full-span">
+              <button class="primary-button" type="submit">Publish Dated Challenge</button>
+              <button class="secondary-button" type="button" id="clearCuratorDailyForm">New Date</button>
+            </div>
+          </form>
+          <div id="curatorDailyChallengeList" class="daily-challenge-list"></div>
+          <p class="loading-note" id="curatorDailyChallengeStatus" aria-live="polite"></p>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
               <p class="kicker">Pending Submissions</p>
               <h2>Review Queue</h2>
             </div>
@@ -209,9 +250,14 @@
           <div class="admin-section-head">
             <div>
               <p class="kicker">Published Cases</p>
-              <h2>Approved Images</h2>
+              <h2>Approved Cases</h2>
             </div>
+            <label class="catalogue-filter">
+              <span class="sr-only">Filter approved cases</span>
+              <input id="approvedImageFilter" type="search" placeholder="Filter cases..." />
+            </label>
           </div>
+          <p class="field-note" id="approvedImageCount"></p>
           <div id="approvedImagesList" class="curator-list compact-list"></div>
         </section>
 

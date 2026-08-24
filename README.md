@@ -47,10 +47,11 @@ chronoscope/
 3. Paste and run `supabase/migrations/001_chronoscope_schema.sql`.
 4. Paste and run `supabase/migrations/003_site_settings.sql` to enable shared homepage gallery controls.
 5. Paste and run `supabase/migrations/004_question_sets_and_submission_dedupe.sql` to enable global question sets, rejected-submission deletion, duplicate submission prevention, and placeholder cleanup.
-6. Go to **Project Settings > API**.
-7. Copy the Project URL.
-8. Copy the anon/public/publishable key.
-9. In `script.js`, set:
+6. Paste and run `supabase/migrations/005_daily_challenges_and_archive.sql` to enable stable dated challenges and public Archive collections.
+7. Go to **Project Settings > API**.
+8. Copy the Project URL.
+9. Copy the anon/public/publishable key.
+10. In `script.js`, set:
 
 ```js
 const SUPABASE_URL = "https://your-project-ref.supabase.co";
@@ -79,6 +80,16 @@ This project currently treats every authenticated Supabase user as a curator. Th
 - `anon` and `authenticated` can insert rows only with `status = 'pending'`.
 - `anon` cannot select, update, or delete submissions.
 - `authenticated` can select and update submissions.
+
+`public.daily_challenges`:
+
+- `anon` can select only rows where `published = true`.
+- `authenticated` curators can create, edit, publish, hide, and delete dated challenges.
+
+`public.question_sets`:
+
+- `anon` can select only collections where `is_public = true`.
+- `authenticated` curators can manage all collections.
 
 Allowed submission statuses:
 
@@ -118,6 +129,23 @@ You can:
 - delete sets you no longer need
 
 Question sets save to Supabase `public.question_sets`. The active set is saved in `public.site_settings`, so it applies to every visitor.
+
+The **Show this collection in the public Archive** checkbox controls whether players can open that set from the Archive page. Existing sets become public when migration 005 is first run, so no current collection disappears.
+
+## Dated Challenges And Archive
+
+Migration `005_daily_challenges_and_archive.sql` creates `public.daily_challenges` without changing any existing image, submission, or historical-record row.
+
+In the curator dashboard:
+
+1. Open **Daily Challenges**.
+2. Choose a date, title, source collection, and number of cases.
+3. Click **Publish Dated Challenge**.
+4. The exact ordered case IDs are saved as a permanent snapshot for that date.
+
+The public **Archive** page can replay published dates and public Question Sets. Exact links use `?daily=YYYY-MM-DD` or `?set=collection_id`, so two players opening the same link receive the same cases.
+
+Player history, best percentage, and daily streak are stored only in that browser's `localStorage`. They are labelled **On this device** and are not uploaded to Supabase.
 
 ## Submission Cleanup
 

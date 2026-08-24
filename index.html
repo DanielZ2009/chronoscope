@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-20" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-21" />
     <!-- Google tag (gtag.js). Public pages only; admin.html intentionally omits analytics. -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-4NTPNH9KXJ"></script>
     <script>
@@ -31,7 +31,7 @@
     </script>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-20" defer></script>
+    <script src="script.js?v=chronoscope-21" defer></script>
   </head>
   <body class="view-home" data-page="main">
     <header class="site-header">
@@ -48,7 +48,8 @@
       <nav class="site-nav" aria-label="Primary navigation">
         <button type="button" data-view-target="home">Home</button>
         <button type="button" data-action="start-game">Play</button>
-          <button type="button" data-view-target="submit">Contribute</button>
+        <button type="button" data-view-target="archive">Archive</button>
+        <button type="button" data-view-target="submit">Contribute</button>
         <button type="button" data-view-target="about">About</button>
       </nav>
     </header>
@@ -84,8 +85,8 @@
               <button class="primary-button" type="button" data-action="start-game">
                 Today's Case <span aria-hidden="true">&rarr;</span>
               </button>
-              <button class="text-button" type="button" data-view-target="submit">
-                Contribute to the Archive
+              <button class="text-button" type="button" data-view-target="archive">
+                Explore the Archive
               </button>
             </div>
             <p class="sr-only" id="dataStatus" aria-live="polite"></p>
@@ -139,6 +140,68 @@
             </figure>
           </div>
         </div>
+      </section>
+
+      <section class="screen archive-screen" data-view="archive" id="archive">
+        <div class="section-heading archive-heading">
+          <p class="kicker">The public index</p>
+          <h2>Archive</h2>
+          <p>
+            Revisit a dated challenge, open a curated collection, or practise
+            with cases drawn from the published record.
+          </p>
+          <p class="loading-note" id="archiveStatus" aria-live="polite"></p>
+        </div>
+
+        <section class="player-record" aria-labelledby="playerRecordTitle">
+          <div class="archive-section-heading">
+            <div>
+              <p class="kicker">On this device</p>
+              <h3 id="playerRecordTitle">Your Record</h3>
+            </div>
+            <button class="text-button compact-button" type="button" id="clearPlayerRecord">
+              Clear record
+            </button>
+          </div>
+          <div class="record-metrics" id="playerRecordMetrics"></div>
+        </section>
+
+        <div class="archive-index">
+          <section class="archive-index-section" aria-labelledby="dailyArchiveTitle">
+            <div class="archive-section-heading">
+              <div>
+                <p class="kicker">Dated editions</p>
+                <h3 id="dailyArchiveTitle">Past Challenges</h3>
+              </div>
+            </div>
+            <div class="archive-list" id="dailyArchiveList">
+              <p class="loading-note">Loading the dated archive...</p>
+            </div>
+          </section>
+
+          <section class="archive-index-section" aria-labelledby="collectionArchiveTitle">
+            <div class="archive-section-heading">
+              <div>
+                <p class="kicker">Curator selections</p>
+                <h3 id="collectionArchiveTitle">Collections</h3>
+              </div>
+            </div>
+            <div class="archive-list" id="archiveCollectionList">
+              <p class="loading-note">Loading collections...</p>
+            </div>
+          </section>
+        </div>
+
+        <section class="practice-entry">
+          <div>
+            <p class="kicker">Open study</p>
+            <h3>Practice the published archive</h3>
+            <p>A fresh selection for observation without affecting a dated challenge.</p>
+          </div>
+          <button class="primary-button" type="button" data-action="start-practice">
+            Begin Practice <span aria-hidden="true">&rarr;</span>
+          </button>
+        </section>
       </section>
 
       <section class="screen game-screen" data-view="game" id="game">
@@ -243,6 +306,7 @@
           <h2>Your Reading of the Past</h2>
           <p id="finalScore" class="final-score">0 / 25,000</p>
           <p id="ratingTitle" class="rating-title"></p>
+          <p id="resultRecordNote" class="result-record-note"></p>
         </div>
 
         <div class="results-grid">
@@ -256,7 +320,7 @@
             <textarea id="shareText" readonly rows="7"></textarea>
             <div class="button-row">
               <button class="primary-button" type="button" id="copyResult">Copy Result</button>
-              <button class="secondary-button" type="button" data-action="start-game">
+              <button class="secondary-button" type="button" data-action="replay-challenge">
                 Play Again
               </button>
             </div>
