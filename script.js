@@ -100,6 +100,7 @@ const state = {
   dataSource: "json",
   isSubmitting: false,
   activeView: "home",
+  guessMode: "where",
 };
 
 const adminState = {
@@ -208,6 +209,8 @@ function showView(viewName) {
 
   const previousView = state.activeView;
   state.activeView = viewName;
+  document.body.classList.remove("view-home", "view-game", "view-results", "view-submit", "view-about");
+  document.body.classList.add(`view-${viewName}`);
 
   if (viewName === "game" && state.map) {
     setTimeout(() => state.map.invalidateSize(), 80);
@@ -225,14 +228,20 @@ function showView(viewName) {
     trackAnalyticsEvent("open_about_page");
   }
 
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({ top: 0, behavior: "auto" });
+  requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
+  window.setTimeout(() => window.scrollTo({ top: 0, behavior: "auto" }), 120);
 }
 
 function applyHomeGallery() {
   const settings = readPublicGameSettings();
   const gallery = resolveHomeGallery(settings);
-  ["#homeImageOne", "#homeImageTwo", "#homeImageThree"].forEach((selector, index) => {
-    setHomeImageSlot(selector, gallery[index]?.image);
+  [
+    ["#homeImageOne", "#heroImageOne"],
+    ["#homeImageTwo", "#heroImageTwo"],
+    ["#homeImageThree", "#heroImageThree"],
+  ].forEach((selectors, index) => {
+    selectors.forEach((selector) => setHomeImageSlot(selector, gallery[index]?.image));
   });
 
   [
@@ -257,7 +266,7 @@ function setHomeImageSlot(selector, value) {
     return;
   }
 
-  const figure = image.closest(".archive-teaser");
+  const figure = image.closest(".archive-teaser, .montage-frame");
   const url = cleanString(value);
   if (!url) {
     image.removeAttribute("src");
@@ -576,10 +585,34 @@ function bindGameControls() {
 
   $("#yearInput").addEventListener("input", (event) => setYearGuess(event.target.value));
   bindTimelineControl();
+  bindGuessModeControls();
   bindImageInspectorControls();
   $("#submitGuess").addEventListener("click", submitGuess);
   $("#refreshRound").addEventListener("click", refreshCurrentRound);
   $("#nextRound").addEventListener("click", advanceRound);
+}
+
+function bindGuessModeControls() {
+  $$('.guess-mode-tabs [data-guess-mode]').forEach((control) => {
+    control.addEventListener("click", () => setGuessMode(control.dataset.guessMode));
+  });
+}
+
+function setGuessMode(mode) {
+  const nextMode = mode === "when" ? "when" : "where";
+  state.guessMode = nextMode;
+  const panel = $(".detective-panel");
+  if (panel) {
+    panel.dataset.guessMode = nextMode;
+  }
+  $$('.guess-mode-tabs [data-guess-mode]').forEach((control) => {
+    const isActive = control.dataset.guessMode === nextMode;
+    control.classList.toggle("is-active", isActive);
+    control.setAttribute("aria-selected", String(isActive));
+  });
+  if (nextMode === "where" && state.map) {
+    setTimeout(() => state.map.invalidateSize(), 40);
+  }
 }
 
 function bindImageInspectorControls() {
@@ -740,6 +773,7 @@ function startGame() {
   });
 
   showView("game");
+  setGuessMode("where");
 
   requestAnimationFrame(() => {
     initMap();
@@ -806,16 +840,19 @@ function loadRound() {
   clearMapLayers();
   setYearGuess(DEFAULT_YEAR);
 
-  $("#roundTitle").textContent = `Round ${state.currentRoundIndex + 1}`;
-  $("#roundCounter").textContent = `Round ${state.currentRoundIndex + 1} of ${state.rounds.length}`;
-  $("#scorePreview").textContent = `Score ${formatNumber(getTotalScore())} / ${formatNumber(state.rounds.length * MAX_ROUND_SCORE)}`;
+  const caseNumber = state.currentRoundIndex + 1;
+  $("#roundTitle").textContent = `Case ${String(caseNumber).padStart(2, "0")}`;
+  $("#roundCounter").textContent = `${String(caseNumber).padStart(2, "0")} / ${String(state.rounds.length).padStart(2, "0")}`;
+  $("#scorePreview").textContent = `${formatNumber(getTotalScore())} / ${formatNumber(state.rounds.length * MAX_ROUND_SCORE)}`;
+  renderRoundProgress();
+  setGuessMode("where");
   setRoundImage(round, { forceReset: true });
   $("#mapStatus").textContent = "No location selected";
   $("#submitGuess").disabled = true;
   $("#submitGuess").hidden = false;
   $("#refreshRound").hidden = false;
   $("#nextRound").hidden = true;
-  $("#nextRound").textContent = "Next Round";
+  $("#nextRound").textContent = "Next Case";
   $("#revealPanel").hidden = true;
   $("#revealPanel").innerHTML = "";
 
@@ -823,6 +860,24 @@ function loadRound() {
     state.map.setView([22, 12], 2);
     setTimeout(() => state.map.invalidateSize(), 80);
   }
+}
+
+function renderRoundProgress() {
+  const progress = $("#roundProgress");
+  if (!progress) {
+    return;
+  }
+
+  progress.innerHTML = state.rounds
+    .map((_, index) => {
+      const status = index < state.currentRoundIndex
+        ? "is-complete"
+        : index === state.currentRoundIndex
+          ? "is-current"
+          : "is-upcoming";
+      return `<span class="${status}"></span>`;
+    })
+    .join("");
 }
 
 function setRoundImage(round, options = {}) {
@@ -860,7 +915,7 @@ function setRoundImage(round, options = {}) {
     }
     image.classList.remove("is-loading");
     if (caption) {
-      caption.textContent = "Image could not load. Use Refresh Round or try again shortly.";
+      caption.textContent = "Image could not load. Use Reload Image or try again shortly.";
     }
   };
 
@@ -900,7 +955,7 @@ function getRoundImageCaption() {
   if (state.isRevealed && result) {
     return `${result.title} - ${result.locationName}, ${result.yearRange || formatYearLabel(result.actualYear)}`;
   }
-  return "Study the image, choose a date, and place it on the map.";
+  return "Archive image - identifying record withheld";
 }
 
 function openImageInspector() {
@@ -1008,12 +1063,14 @@ function scoreRound(round, guess, guessedYear) {
 
 function revealRound(result) {
   state.isRevealed = true;
+  setGuessMode("where");
   $("#submitGuess").hidden = true;
   $("#nextRound").hidden = false;
-  $("#nextRound").textContent = state.currentRoundIndex >= state.rounds.length - 1 ? "End" : "Next Round";
+  $("#nextRound").textContent = state.currentRoundIndex >= state.rounds.length - 1 ? "End" : "Next Case";
   $("#roundTitle").textContent = result.title;
   $("#imageCaption").textContent = getRoundImageCaption();
-  $("#scorePreview").textContent = `Score ${formatNumber(getTotalScore())} / ${formatNumber(state.rounds.length * MAX_ROUND_SCORE)}`;
+  $("#scorePreview").textContent = `${formatNumber(getTotalScore())} / ${formatNumber(state.rounds.length * MAX_ROUND_SCORE)}`;
+  renderRoundProgress();
 
   if (state.map) {
     const correctLatLng = [result.actualLat, result.actualLng];
@@ -1028,7 +1085,7 @@ function revealRound(result) {
         [result.guessedLat, result.guessedLng],
         correctLatLng,
       ],
-      { color: "#771B17", weight: 3, opacity: 0.82 }
+      { color: "#AD4339", weight: 3, opacity: 0.9 }
     ).addTo(state.map);
 
     state.map.fitBounds(state.answerLine.getBounds(), {
