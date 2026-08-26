@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-21" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-22" />
     <!-- Google tag (gtag.js). Public pages only; admin.html intentionally omits analytics. -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-4NTPNH9KXJ"></script>
     <script>
@@ -31,7 +31,7 @@
     </script>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-21" defer></script>
+    <script src="script.js?v=chronoscope-22" defer></script>
   </head>
   <body class="view-home" data-page="main">
     <header class="site-header">
@@ -166,6 +166,49 @@
           <div class="record-metrics" id="playerRecordMetrics"></div>
         </section>
 
+        <section class="record-catalogue" aria-labelledby="recordCatalogueTitle">
+          <div class="archive-section-heading catalogue-heading">
+            <div>
+              <p class="kicker">Published records</p>
+              <h3 id="recordCatalogueTitle">Browse the Collection</h3>
+            </div>
+            <button class="text-button compact-button" type="button" data-view-target="methodology">
+              Editorial Standards
+            </button>
+          </div>
+
+          <div class="catalogue-controls" aria-label="Archive filters">
+            <label class="catalogue-search">
+              <span>Search</span>
+              <input id="archiveSearch" type="search" placeholder="Title, place, subject..." autocomplete="off" />
+            </label>
+            <label>
+              <span>Period</span>
+              <select id="archivePeriodFilter">
+                <option value="all">All periods</option>
+              </select>
+            </label>
+            <label>
+              <span>Medium</span>
+              <select id="archiveMediumFilter">
+                <option value="all">All media</option>
+              </select>
+            </label>
+            <label>
+              <span>Tag</span>
+              <select id="archiveTagFilter">
+                <option value="all">All tags</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="catalogue-summary">
+            <p id="archiveRecordCount" aria-live="polite"></p>
+            <button class="text-button compact-button" type="button" id="clearArchiveFilters">Clear filters</button>
+          </div>
+          <div class="record-grid" id="archiveRecordGrid"></div>
+        </section>
+
         <div class="archive-index">
           <section class="archive-index-section" aria-labelledby="dailyArchiveTitle">
             <div class="archive-section-heading">
@@ -202,6 +245,74 @@
             Begin Practice <span aria-hidden="true">&rarr;</span>
           </button>
         </section>
+      </section>
+
+      <section class="screen record-screen" data-view="record" id="record">
+        <button class="record-back text-button" type="button" id="backToArchive">
+          <span aria-hidden="true">&larr;</span> Back to Archive
+        </button>
+
+        <article class="record-document" aria-labelledby="recordTitle">
+          <header class="record-header">
+            <div>
+              <p class="kicker">Chronoscope record <span id="recordNumber"></span></p>
+              <h2 id="recordTitle">Archive Record</h2>
+              <p class="record-deck" id="recordDeck"></p>
+            </div>
+            <div class="record-header-actions">
+              <button class="secondary-button" type="button" id="copyRecordLink">Copy Record Link</button>
+              <p class="loading-note" id="copyRecordStatus" aria-live="polite"></p>
+            </div>
+          </header>
+
+          <div class="record-layout">
+            <figure class="record-image-plate">
+              <button class="record-image-button" type="button" id="openRecordImage" aria-label="Inspect the complete image">
+                <img id="recordImage" alt="" />
+                <span>Inspect image <span aria-hidden="true">&nearr;</span></span>
+              </button>
+              <figcaption id="recordImageCaption"></figcaption>
+            </figure>
+
+            <aside class="record-facts" aria-label="Record details">
+              <dl id="recordFactList"></dl>
+              <div id="recordMap" class="record-map" aria-label="Mapped record location"></div>
+              <p class="record-coordinates" id="recordCoordinates"></p>
+            </aside>
+          </div>
+
+          <div class="record-reading">
+            <section class="record-narrative">
+              <p class="kicker">Historical record</p>
+              <div id="recordHistoricalText"></div>
+            </section>
+            <aside class="record-provenance">
+              <section>
+                <h3>Provenance</h3>
+                <p id="recordSource"></p>
+                <div class="record-source-links" id="recordSourceLinks"></div>
+              </section>
+              <section>
+                <h3>Rights &amp; Use</h3>
+                <p id="recordRights"></p>
+              </section>
+              <section>
+                <h3>Appears In</h3>
+                <div id="recordAppearances"></div>
+              </section>
+            </aside>
+          </div>
+
+          <section class="related-records" aria-labelledby="relatedRecordsTitle">
+            <div class="archive-section-heading">
+              <div>
+                <p class="kicker">From the same index</p>
+                <h3 id="relatedRecordsTitle">Related Records</h3>
+              </div>
+            </div>
+            <div class="related-record-grid" id="relatedRecordGrid"></div>
+          </section>
+        </article>
       </section>
 
       <section class="screen game-screen" data-view="game" id="game">
@@ -478,6 +589,108 @@
               verification before they can enter the game.
             </p>
           </section>
+        </div>
+        <div class="about-standards-link">
+          <p>Read how Chronoscope verifies dates, locations, provenance, and reuse rights.</p>
+          <button class="secondary-button" type="button" data-view-target="methodology">Editorial Standards</button>
+        </div>
+      </section>
+
+      <section class="screen methodology-screen" data-view="methodology" id="methodology">
+        <div class="methodology-heading">
+          <p class="kicker">Editorial method</p>
+          <h2>How the record is made.</h2>
+          <p>
+            Chronoscope treats every playable image as both a challenge and an
+            archival claim. Publication requires evidence for what the image shows,
+            where it belongs on the map, when it was made or depicts, and how it may
+            be displayed.
+          </p>
+        </div>
+
+        <div class="methodology-index" aria-label="Editorial standards">
+          <section>
+            <span>01</span>
+            <div>
+              <h3>Place</h3>
+              <p>
+                Scored cases use a defensible point: a camera position, event site,
+                named landmark, or short street segment. A city or region alone is
+                not treated as precise evidence. For representational art, the pin
+                marks the documented subject rather than an invented viewpoint.
+              </p>
+            </div>
+          </section>
+          <section>
+            <span>02</span>
+            <div>
+              <h3>Time</h3>
+              <p>
+                The answer year follows the most relevant documented date: exposure,
+                depicted event, or artwork creation. Catalogue uncertainty remains
+                visible in the displayed date range; Chronoscope does not silently
+                turn an approximate or disputed date into certainty.
+              </p>
+            </div>
+          </section>
+          <section>
+            <span>03</span>
+            <div>
+              <h3>Sources</h3>
+              <p>
+                Museum, library, archive, monument, and government records are
+                preferred. Secondary sources may corroborate coordinates or context,
+                but should not replace the originating collection record when one is
+                available.
+              </p>
+            </div>
+          </section>
+          <section>
+            <span>04</span>
+            <div>
+              <h3>Rights</h3>
+              <p>
+                Every record carries a rights or reuse note. Public-domain and open
+                licences are preferred; attribution and source links remain attached
+                to the record even when the image itself is freely reusable.
+              </p>
+            </div>
+          </section>
+          <section>
+            <span>05</span>
+            <div>
+              <h3>Review</h3>
+              <p>
+                Community and research-assistant proposals enter a private queue.
+                Nothing becomes playable automatically: the curator may edit, reject,
+                or publish only after checking image identity, place, date, context,
+                and rights.
+              </p>
+            </div>
+          </section>
+          <section>
+            <span>06</span>
+            <div>
+              <h3>Uncertainty &amp; Corrections</h3>
+              <p>
+                Hoaxes, contested claims, and uncertain identifications are labelled
+                as such rather than presented as settled fact. Better evidence may
+                lead to a revised pin, date, title, or historical record.
+              </p>
+            </div>
+          </section>
+        </div>
+
+        <div class="methodology-closing">
+          <p>
+            Chronoscope is an evolving public-history project. A published record is
+            a documented reading of the evidence, not a claim that historical
+            knowledge can never change.
+          </p>
+          <div class="button-row">
+            <button class="primary-button" type="button" data-view-target="archive">Browse the Archive</button>
+            <button class="secondary-button" type="button" data-view-target="submit">Contribute a Record</button>
+          </div>
         </div>
       </section>
     </main>

@@ -147,6 +147,36 @@ The public **Archive** page can replay published dates and public Question Sets.
 
 Player history, best percentage, and daily streak are stored only in that browser's `localStorage`. They are labelled **On this device** and are not uploaded to Supabase.
 
+## Public Record Catalogue
+
+Every approved row in `public.images` also appears in the public record catalogue.
+Visitors can search the collection and filter it by period, medium, or any existing
+tag. Medium is derived conservatively from the record tags: paintings, prints, maps,
+and objects retain those labels, while other playable historical images are treated
+as photographs.
+
+Each record has a permanent shareable link:
+
+```text
+https://chronoscope.world/?record=IMAGE_UUID#record
+```
+
+The record view contains the complete image, mapped location, date, Historical
+Record, source links, rights note, index terms, appearances in dated challenges or
+collections, and related records. Round reveals and final results link directly to
+these records.
+
+This feature uses the existing `images.tags`, `source`, `rights`, and other approved
+metadata. It requires no database migration and does not alter existing records.
+
+## Editorial Standards
+
+The public **Editorial Standards** view explains Chronoscope's method for checking
+place, time, sources, reuse rights, uncertainty, and curator review. It also states
+that community and research-assistant proposals remain private until the curator
+checks and publishes them. Keep this page aligned with the actual review standard as
+older records are refined.
+
 ## Submission Cleanup
 
 Public submissions now include a `submission_key` when migration `004_question_sets_and_submission_dedupe.sql` has been run. Duplicate clicks on the same submission are treated as already received instead of creating repeated pending rows.

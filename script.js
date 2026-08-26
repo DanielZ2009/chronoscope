@@ -107,6 +107,11 @@ const state = {
   activeView: "home",
   guessMode: "where",
   initialRouteApplied: false,
+  currentRecord: null,
+  recordReturnView: "archive",
+  recordReturnUrl: "",
+  recordMap: null,
+  recordMarker: null,
 };
 
 const adminState = {
@@ -164,8 +169,10 @@ function getAnalyticsPageTitle(viewName) {
     home: "Chronoscope",
     game: "Chronoscope - Game",
     archive: "Chronoscope - Archive",
+    record: "Chronoscope - Archive Record",
     submit: "Chronoscope - Submit",
     about: "Chronoscope - About",
+    methodology: "Chronoscope - Editorial Standards",
     results: "Chronoscope - Results",
   };
   return labels[viewName] || "Chronoscope";
@@ -178,6 +185,7 @@ async function initMainPage() {
   bindSubmissionLocationControls();
   bindSubmissionForm();
   bindCopyButtons();
+  bindArchiveControls();
   showSubmissionConnectionStatus();
 
   applyHashRoute();
@@ -232,7 +240,16 @@ function showView(viewName) {
 
   const previousView = state.activeView;
   state.activeView = viewName;
-  document.body.classList.remove("view-home", "view-game", "view-results", "view-submit", "view-about", "view-archive");
+  document.body.classList.remove(
+    "view-home",
+    "view-game",
+    "view-results",
+    "view-submit",
+    "view-about",
+    "view-archive",
+    "view-record",
+    "view-methodology"
+  );
   document.body.classList.add(`view-${viewName}`);
 
   if (viewName === "game" && state.map) {
@@ -243,12 +260,20 @@ function showView(viewName) {
     setTimeout(() => initSubmissionMap(), 80);
   }
 
+  if (viewName === "record" && state.recordMap) {
+    setTimeout(() => state.recordMap.invalidateSize(), 80);
+  }
+
   if (previousView !== viewName) {
     trackVirtualPageView(viewName);
   }
 
   if (viewName === "about") {
     trackAnalyticsEvent("open_about_page");
+  }
+
+  if (viewName === "methodology") {
+    trackAnalyticsEvent("open_methodology");
   }
 
   window.scrollTo({ top: 0, behavior: "auto" });
@@ -305,7 +330,7 @@ function setHomeImageSlot(selector, value) {
 
 function applyHashRoute() {
   const viewName = location.hash.replace("#", "");
-  if (["home", "archive", "submit", "about"].includes(viewName)) {
+  if (["home", "archive", "submit", "about", "methodology"].includes(viewName)) {
     showView(viewName);
   }
 }
@@ -484,6 +509,369 @@ function renderPublicArchive() {
   renderPlayerRecord();
   renderDailyArchive();
   renderPublicCollections();
+  populateArchiveFilters();
+  renderArchiveCatalogue();
+}
+
+function bindArchiveControls() {
+  ["#archiveSearch", "#archivePeriodFilter", "#archiveMediumFilter", "#archiveTagFilter"].forEach((selector) => {
+    const control = $(selector);
+    if (!control) {
+      return;
+    }
+    control.addEventListener(control.matches("input") ? "input" : "change", renderArchiveCatalogue);
+  });
+
+  $("#clearArchiveFilters")?.addEventListener("click", () => {
+    setInputValue("#archiveSearch", "");
+    setInputValue("#archivePeriodFilter", "all");
+    setInputValue("#archiveMediumFilter", "all");
+    setInputValue("#archiveTagFilter", "all");
+    renderArchiveCatalogue();
+  });
+
+  document.addEventListener("click", (event) => {
+    const recordControl = event.target.closest("[data-record-id]");
+    if (!recordControl) {
+      return;
+    }
+    event.preventDefault();
+    openArchiveRecord(recordControl.dataset.recordId);
+  });
+
+  $("#backToArchive")?.addEventListener("click", closeArchiveRecord);
+  $("#copyRecordLink")?.addEventListener("click", copyCurrentRecordLink);
+  $("#openRecordImage")?.addEventListener("click", openRecordImageInspector);
+  $("#recordAppearances")?.addEventListener("click", handlePublicArchiveAction);
+  window.addEventListener("popstate", applyRecordHistoryRoute);
+}
+
+function populateArchiveFilters() {
+  const records = state.staticImages.filter(isPlayableImage);
+  const periodSelect = $("#archivePeriodFilter");
+  const mediumSelect = $("#archiveMediumFilter");
+  const tagSelect = $("#archiveTagFilter");
+  if (!periodSelect || !mediumSelect || !tagSelect) {
+    return;
+  }
+
+  const selectedPeriod = periodSelect.value || "all";
+  const selectedMedium = mediumSelect.value || "all";
+  const selectedTag = tagSelect.value || "all";
+  const periods = [...new Map(
+    records
+      .map((record) => getArchivePeriod(record.year))
+      .sort((a, b) => a.sort - b.sort)
+      .map((period) => [period.value, period])
+  ).values()];
+  const media = [...new Set(records.map(getArchiveMedium))].sort((a, b) => a.localeCompare(b));
+  const tags = [...new Set(records.flatMap((record) => record.tags))]
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+
+  periodSelect.innerHTML = [
+    '<option value="all">All periods</option>',
+    ...periods.map((period) => `<option value="${escapeAttribute(period.value)}">${escapeHtml(period.label)}</option>`),
+  ].join("");
+  mediumSelect.innerHTML = [
+    '<option value="all">All media</option>',
+    ...media.map((medium) => `<option value="${escapeAttribute(medium)}">${escapeHtml(medium)}</option>`),
+  ].join("");
+  tagSelect.innerHTML = [
+    '<option value="all">All tags</option>',
+    ...tags.map((tag) => `<option value="${escapeAttribute(tag)}">${escapeHtml(tag)}</option>`),
+  ].join("");
+
+  periodSelect.value = periods.some((period) => period.value === selectedPeriod) ? selectedPeriod : "all";
+  mediumSelect.value = media.includes(selectedMedium) ? selectedMedium : "all";
+  tagSelect.value = tags.includes(selectedTag) ? selectedTag : "all";
+}
+
+function renderArchiveCatalogue() {
+  const container = $("#archiveRecordGrid");
+  const count = $("#archiveRecordCount");
+  if (!container || !count) {
+    return;
+  }
+
+  const query = cleanString($("#archiveSearch")?.value).toLowerCase();
+  const period = cleanString($("#archivePeriodFilter")?.value) || "all";
+  const medium = cleanString($("#archiveMediumFilter")?.value) || "all";
+  const tag = cleanString($("#archiveTagFilter")?.value) || "all";
+  const records = state.staticImages
+    .filter(isPlayableImage)
+    .filter((record) => {
+      const haystack = [record.title, record.locationName, record.yearRange, record.source, ...record.tags]
+        .join(" ")
+        .toLowerCase();
+      return (
+        (!query || haystack.includes(query)) &&
+        (period === "all" || getArchivePeriod(record.year).value === period) &&
+        (medium === "all" || getArchiveMedium(record) === medium) &&
+        (tag === "all" || record.tags.includes(tag))
+      );
+    })
+    .sort((a, b) => Number(b.year) - Number(a.year) || a.title.localeCompare(b.title));
+
+  count.textContent = `${records.length} of ${state.staticImages.length} published record${state.staticImages.length === 1 ? "" : "s"}`;
+  if (records.length === 0) {
+    container.innerHTML = `
+      <div class="catalogue-empty">
+        <strong>No records match this reading.</strong>
+        <span>Clear the filters or try a broader search.</span>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = records.map(renderArchiveRecordCard).join("");
+}
+
+function renderArchiveRecordCard(record, options = {}) {
+  const compact = options.compact === true;
+  const visibleTags = record.tags.slice(0, compact ? 2 : 3);
+  return `
+    <article class="archive-record-card${compact ? " is-compact" : ""}">
+      <button type="button" data-record-id="${escapeAttribute(record.id)}" aria-label="Open record: ${escapeAttribute(record.title)}">
+        <span class="record-card-image">
+          <img src="${escapeAttribute(safeImageUrl(record.image))}" alt="" loading="lazy" />
+          <span>${escapeHtml(record.yearRange || formatYearLabel(record.year))}</span>
+        </span>
+        <span class="record-card-copy">
+          <span class="record-card-meta">${escapeHtml(getArchiveMedium(record))} &middot; ${escapeHtml(record.difficulty)}</span>
+          <strong>${escapeHtml(record.title)}</strong>
+          <span class="record-card-place">${escapeHtml(record.locationName)}</span>
+          <span class="record-card-tags">${visibleTags.map((item) => `<em>${escapeHtml(item)}</em>`).join("")}</span>
+        </span>
+      </button>
+    </article>
+  `;
+}
+
+function getArchivePeriod(yearValue) {
+  const year = Number(yearValue);
+  if (year <= 0) {
+    const century = Math.max(1, Math.ceil(Math.abs(year || 1) / 100));
+    return {
+      value: `bce-${century}`,
+      label: `${formatOrdinal(century)} century BCE`,
+      sort: -century,
+    };
+  }
+  const century = Math.ceil(year / 100);
+  return {
+    value: `ce-${century}`,
+    label: `${formatOrdinal(century)} century`,
+    sort: century,
+  };
+}
+
+function getArchiveMedium(record) {
+  const tags = record.tags.map((tag) => tag.toLowerCase());
+  if (tags.some((tag) => tag === "painting" || tag.includes("painting"))) return "Painting";
+  if (tags.some((tag) => tag.includes("ukiyo-e") || tag.includes("woodblock") || tag === "print")) return "Print";
+  if (tags.some((tag) => tag === "map" || tag.includes("cartography"))) return "Map";
+  if (tags.some((tag) => tag === "object" || tag === "artifact" || tag === "artefact")) return "Object";
+  return "Photograph";
+}
+
+function formatOrdinal(value) {
+  const number = Number(value);
+  const remainder100 = number % 100;
+  if (remainder100 >= 11 && remainder100 <= 13) return `${number}th`;
+  const suffix = number % 10 === 1 ? "st" : number % 10 === 2 ? "nd" : number % 10 === 3 ? "rd" : "th";
+  return `${number}${suffix}`;
+}
+
+function openArchiveRecord(recordId, options = {}) {
+  const record = state.staticImages.find((entry) => String(entry.id) === String(recordId));
+  if (!record) {
+    showArchiveMessage("That archival record is not available.");
+    showView("archive");
+    return false;
+  }
+
+  if (state.activeView !== "record") {
+    state.recordReturnView = ["game", "results"].includes(state.activeView) ? state.activeView : "archive";
+    const currentParams = new URLSearchParams(window.location.search);
+    state.recordReturnUrl = currentParams.has("record")
+      ? `${window.location.pathname}#archive`
+      : `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  }
+  state.currentRecord = record;
+  renderArchiveRecord(record);
+  showView("record");
+  if (options.updateHistory !== false) {
+    window.history.pushState({ recordId: record.id }, "", getArchiveRecordPath(record.id));
+  }
+  trackAnalyticsEvent("view_archive_record", {
+    record_id: record.id,
+    record_year: record.year,
+    record_medium: getArchiveMedium(record),
+  });
+  return true;
+}
+
+function renderArchiveRecord(record) {
+  const stableRecordNumber = cleanString(record.id).replace(/[^a-z0-9]/gi, "").slice(0, 8).toUpperCase();
+  $("#recordNumber").textContent = `CS-${stableRecordNumber || "ARCHIVE"}`;
+  $("#recordTitle").textContent = record.title;
+  $("#recordDeck").textContent = `${record.locationName} · ${record.yearRange || formatYearLabel(record.year)}`;
+  $("#recordImage").src = safeImageUrl(record.image);
+  $("#recordImage").alt = record.title;
+  $("#recordImageCaption").textContent = `${record.title} · ${record.locationName}`;
+  $("#recordCoordinates").textContent = `${formatPreciseCoordinate(record.lat)}, ${formatPreciseCoordinate(record.lng)}`;
+  $("#recordHistoricalText").innerHTML = `<p>${escapeHtml(record.explanation || "This record is awaiting expanded historical context.")}</p>`;
+  $("#recordRights").textContent = record.rights || "Rights information has not been supplied.";
+  const returnLabels = {
+    game: "Back to Reading",
+    results: "Back to Results",
+    archive: "Back to Archive",
+  };
+  $("#backToArchive").innerHTML = `<span aria-hidden="true">&larr;</span> ${returnLabels[state.recordReturnView] || returnLabels.archive}`;
+
+  const factRows = [
+    ["Date", record.yearRange || formatYearLabel(record.year)],
+    ["Place", record.locationName],
+    ["Medium", getArchiveMedium(record)],
+    ["Difficulty", capitalizeWord(record.difficulty)],
+  ];
+  $("#recordFactList").innerHTML = factRows
+    .map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`)
+    .join("") + `
+      <div class="record-tag-fact">
+        <dt>Index terms</dt>
+        <dd>${record.tags.map((item) => `<span>${escapeHtml(item)}</span>`).join("") || "None assigned"}</dd>
+      </div>
+    `;
+
+  const sourceUrls = extractHttpsUrls(`${record.source} ${record.rights}`);
+  const sourceText = stripUrlsFromText(record.source) || "Source details are attached to the collection record.";
+  $("#recordSource").textContent = sourceText;
+  $("#recordSourceLinks").innerHTML = sourceUrls.length
+    ? sourceUrls.map((url, index) => `
+        <a href="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer">
+          ${escapeHtml(formatSourceLinkLabel(url, index))} <span aria-hidden="true">&nearr;</span>
+        </a>
+      `).join("")
+    : '<span class="record-no-link">No direct catalogue link supplied.</span>';
+
+  renderRecordAppearances(record);
+  renderRelatedRecords(record);
+  initRecordMap(record);
+  document.title = `${record.title} | Chronoscope`;
+}
+
+function renderRecordAppearances(record) {
+  const appearances = [];
+  state.dailyChallenges.forEach((challenge) => {
+    if (challenge.imageIds.includes(record.id)) {
+      appearances.push(`<button type="button" data-action="play-daily" data-challenge-date="${escapeAttribute(challenge.date)}">${escapeHtml(challenge.title)} · ${escapeHtml(formatArchiveDate(challenge.date))}</button>`);
+    }
+  });
+  state.publicQuestionSets.forEach((set) => {
+    if (set.isPublic && set.imageIds.includes(record.id)) {
+      appearances.push(`<button type="button" data-action="play-collection" data-set-id="${escapeAttribute(set.id)}">${escapeHtml(set.title)}</button>`);
+    }
+  });
+  $("#recordAppearances").innerHTML = appearances.length
+    ? appearances.join("")
+    : '<span class="record-no-link">Published archive</span>';
+}
+
+function renderRelatedRecords(record) {
+  const recordTags = new Set(record.tags.map((tag) => tag.toLowerCase()));
+  const related = state.staticImages
+    .filter((entry) => entry.id !== record.id)
+    .map((entry) => {
+      const sharedTags = entry.tags.filter((tag) => recordTags.has(tag.toLowerCase())).length;
+      const sameMedium = getArchiveMedium(entry) === getArchiveMedium(record) ? 1 : 0;
+      const samePeriod = getArchivePeriod(entry.year).value === getArchivePeriod(record.year).value ? 1 : 0;
+      return { entry, score: sharedTags * 3 + sameMedium + samePeriod };
+    })
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.entry.title.localeCompare(b.entry.title))
+    .slice(0, 4)
+    .map((item) => item.entry);
+
+  $("#relatedRecordGrid").innerHTML = related.length
+    ? related.map((entry) => renderArchiveRecordCard(entry, { compact: true })).join("")
+    : '<p class="record-no-link">No related records are indexed yet.</p>';
+}
+
+function initRecordMap(record) {
+  if (typeof L === "undefined" || !$("#recordMap")) {
+    return;
+  }
+  const point = [record.lat, record.lng];
+  if (!state.recordMap) {
+    state.recordMap = L.map("recordMap", {
+      minZoom: 2,
+      worldCopyJump: true,
+      scrollWheelZoom: false,
+    });
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(state.recordMap);
+  }
+  if (state.recordMarker) {
+    state.recordMarker.setLatLng(point);
+  } else {
+    state.recordMarker = L.marker(point, { icon: createMapPinIcon("answer") }).addTo(state.recordMap);
+  }
+  state.recordMarker.bindPopup(record.locationName);
+  state.recordMap.setView(point, 11);
+  setTimeout(() => state.recordMap.invalidateSize(), 80);
+}
+
+function closeArchiveRecord() {
+  const returnView = state.recordReturnView || "archive";
+  const returnUrl = state.recordReturnUrl || `${window.location.pathname}#archive`;
+  state.currentRecord = null;
+  document.title = getAnalyticsPageTitle(returnView);
+  window.history.pushState({}, "", returnUrl);
+  showView(returnView);
+  state.recordReturnView = "archive";
+  state.recordReturnUrl = "";
+}
+
+function applyRecordHistoryRoute() {
+  if (!state.staticImages.length) {
+    return;
+  }
+  const recordId = cleanString(new URLSearchParams(window.location.search).get("record"));
+  if (recordId) {
+    openArchiveRecord(recordId, { updateHistory: false });
+  } else if (state.activeView === "record") {
+    const returnView = state.recordReturnView || "archive";
+    state.currentRecord = null;
+    document.title = getAnalyticsPageTitle(returnView);
+    showView(returnView);
+    state.recordReturnView = "archive";
+    state.recordReturnUrl = "";
+  }
+}
+
+function getArchiveRecordPath(recordId) {
+  const url = new URL(window.location.href);
+  url.search = "";
+  url.searchParams.set("record", recordId);
+  url.hash = "record";
+  return `${url.pathname}${url.search}${url.hash}`;
+}
+
+async function copyCurrentRecordLink() {
+  const status = $("#copyRecordStatus");
+  if (!state.currentRecord || !status) {
+    return;
+  }
+  try {
+    await copyText(`${window.location.origin}${getArchiveRecordPath(state.currentRecord.id)}`);
+    status.textContent = "Record link copied.";
+  } catch (error) {
+    status.textContent = "The record link could not be copied.";
+  }
 }
 
 function renderDailyArchive() {
@@ -1141,10 +1529,16 @@ function handlePublicArchiveAction(event) {
   }
 
   if (button.dataset.action === "play-daily") {
-    startDailyChallenge(button.dataset.challengeDate);
+    const date = cleanString(button.dataset.challengeDate);
+    if (startDailyChallenge(date)) {
+      window.history.pushState({}, "", `${window.location.pathname}?daily=${encodeURIComponent(date)}`);
+    }
   }
   if (button.dataset.action === "play-collection") {
-    startQuestionSet(button.dataset.setId);
+    const setId = cleanString(button.dataset.setId);
+    if (startQuestionSet(setId)) {
+      window.history.pushState({}, "", `${window.location.pathname}?set=${encodeURIComponent(setId)}`);
+    }
   }
 }
 
@@ -1155,8 +1549,15 @@ function applyInitialChallengeRoute() {
   state.initialRouteApplied = true;
 
   const params = new URLSearchParams(window.location.search);
+  const recordId = cleanString(params.get("record"));
   const dailyDate = cleanString(params.get("daily"));
   const setId = cleanString(params.get("set"));
+  if (recordId) {
+    if (!openArchiveRecord(recordId, { updateHistory: false })) {
+      showView("archive");
+    }
+    return;
+  }
   if (dailyDate) {
     if (!startDailyChallenge(dailyDate)) {
       showView("archive");
@@ -1349,17 +1750,38 @@ function getRoundImageCaption() {
 
 function openImageInspector() {
   const round = getCurrentRound();
-  const inspector = $("#imageInspector");
-  const inspectorImage = $("#inspectorImage");
-  const inspectorCaption = $("#inspectorCaption");
-  if (!round || !inspector || !inspectorImage) {
+  if (!round) {
     return;
   }
 
-  inspectorImage.src = safeImageUrl(round.image);
-  inspectorImage.alt = `Enlarged archival image for round ${state.currentRoundIndex + 1}`;
+  openImageInspectorFor(
+    round.image,
+    `Enlarged archival image for round ${state.currentRoundIndex + 1}`,
+    getRoundImageCaption()
+  );
+}
+
+function openRecordImageInspector() {
+  const record = state.currentRecord;
+  if (!record) {
+    return;
+  }
+
+  openImageInspectorFor(record.image, record.title, `${record.title} - ${record.locationName}`);
+}
+
+function openImageInspectorFor(imageUrl, altText, captionText) {
+  const inspector = $("#imageInspector");
+  const inspectorImage = $("#inspectorImage");
+  const inspectorCaption = $("#inspectorCaption");
+  if (!inspector || !inspectorImage) {
+    return;
+  }
+
+  inspectorImage.src = safeImageUrl(imageUrl);
+  inspectorImage.alt = altText;
   if (inspectorCaption) {
-    inspectorCaption.textContent = getRoundImageCaption();
+    inspectorCaption.textContent = captionText;
   }
   inspector.hidden = false;
   document.body.classList.add("modal-open");
@@ -1374,7 +1796,7 @@ function closeImageInspector() {
 
   inspector.hidden = true;
   document.body.classList.remove("modal-open");
-  $("#openImageInspector")?.focus();
+  (state.activeView === "record" ? $("#openRecordImage") : $("#openImageInspector"))?.focus();
 }
 
 function handleMapClick(event) {
@@ -1509,6 +1931,11 @@ function revealRound(result) {
       <p>${escapeHtml(result.explanation || "This entry is awaiting a fuller historical note after source verification.")}</p>
     </div>
     <p class="source-line">Source: ${escapeHtml(result.source || "Not provided")} | Rights: ${escapeHtml(result.rights || "Not provided")}</p>
+    <div class="reveal-record-action">
+      <button class="secondary-button" type="button" data-record-id="${escapeAttribute(result.imageId)}">
+        Open Full Record <span aria-hidden="true">&rarr;</span>
+      </button>
+    </div>
   `;
   $("#revealPanel").hidden = false;
 }
@@ -1584,7 +2011,10 @@ function renderRoundTable(results) {
       (result) => `
         <tr>
           <td>${result.roundNumber}</td>
-          <td>${escapeHtml(result.locationName)}<br><span class="answer-line">${escapeHtml(result.yearRange || String(result.actualYear))}</span></td>
+          <td>
+            <button class="round-record-link" type="button" data-record-id="${escapeAttribute(result.imageId)}">${escapeHtml(result.title)}</button>
+            <span class="round-record-answer">${escapeHtml(result.locationName)} · ${escapeHtml(result.yearRange || String(result.actualYear))}</span>
+          </td>
           <td>${formatDistance(result.distanceKm)}</td>
           <td>${formatNumber(result.yearError)} years</td>
           <td>${formatNumber(result.locationScore)}</td>
@@ -4260,6 +4690,45 @@ function safeImageUrl(value) {
     return url;
   }
   return EMPTY_IMAGE_PLACEHOLDER;
+}
+
+function extractHttpsUrls(value) {
+  const matches = String(value || "").match(/https:\/\/[^\s|]+/g) || [];
+  return [...new Set(
+    matches
+      .map((url) => url.replace(/[),.;]+$/g, ""))
+      .filter((url) => {
+        try {
+          return new URL(url).protocol === "https:";
+        } catch (error) {
+          return false;
+        }
+      })
+  )];
+}
+
+function stripUrlsFromText(value) {
+  return cleanString(
+    String(value || "")
+      .replace(/https:\/\/[^\s|]+/g, "")
+      .replace(/Evidence:\s*/gi, " ")
+      .replace(/\s*\|\s*/g, " · ")
+      .replace(/(?:\s*·\s*)+$/g, "")
+  );
+}
+
+function formatSourceLinkLabel(url, index) {
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    return `${index === 0 ? "Collection record" : `Source ${index + 1}`} · ${hostname}`;
+  } catch (error) {
+    return `Source ${index + 1}`;
+  }
+}
+
+function capitalizeWord(value) {
+  const text = cleanString(value);
+  return text ? `${text.charAt(0).toUpperCase()}${text.slice(1)}` : "Not assigned";
 }
 
 function escapeHtml(value) {
