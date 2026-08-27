@@ -3,6 +3,7 @@
   "activeSetId": "all",
   "activeSetName": "All published cases",
   "randomizeRounds": true,
+  "heroBackground": "assets/chronoscope-archive-room.jpg",
   "homeGallery": [
     {
       "image": "",

@@ -14,9 +14,9 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-22" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-23" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-22" defer></script>
+    <script src="script.js?v=chronoscope-23" defer></script>
   </head>
   <body data-page="admin">
     <header class="site-header">
@@ -83,10 +83,17 @@
             </div>
           </div>
           <p>
-            Choose the three archive images shown on the homepage. Use public image URLs
-            or existing site paths such as <code>assets/images/my_archive_image.jpg</code>.
+            Choose a quiet hero background and the three framed archive records shown
+            below it. Use public image URLs or existing site paths such as
+            <code>assets/images/my_archive_image.jpg</code>.
           </p>
           <form id="curatorHomeGalleryForm" class="owner-form">
+            <label class="full-span">
+              Hero background URL/path
+              <input id="curatorHeroBackground" placeholder="assets/chronoscope-archive-room.jpg" />
+              <span class="field-note">This image is darkened behind the Chronoscope title and does not change the framed gallery.</span>
+            </label>
+
             <label class="full-span">
               Primary image URL/path
               <input id="curatorHomeImageOne" placeholder="https://archive.example/image.jpg" />

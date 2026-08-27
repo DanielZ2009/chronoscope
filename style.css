@@ -2750,13 +2750,13 @@ body.view-home .app-shell {
   to { opacity: 1; }
 }
 
-.hero-montage,
+.hero-background,
 .hero-shade {
   position: absolute;
   inset: 0;
 }
 
-.hero-montage {
+.hero-background {
   z-index: -3;
   overflow: hidden;
   background: #0D0D0C;
@@ -2767,46 +2767,13 @@ body.view-home .app-shell {
   background: rgba(9, 9, 8, 0.68);
 }
 
-.montage-frame {
-  position: absolute;
-  margin: 0;
-  overflow: hidden;
-  border: 1px solid rgba(154, 122, 72, 0.2);
-  background: #151513;
-  box-shadow: 0 24px 65px rgba(0, 0, 0, 0.42);
-}
-
-.montage-frame-primary {
-  inset: -4% 23% 2% 17%;
-  transform: rotate(-0.4deg);
-}
-
-.montage-frame-secondary {
-  top: 5%;
-  right: -2%;
-  width: 29%;
-  height: 52%;
-  transform: rotate(0.8deg);
-}
-
-.montage-frame-tertiary {
-  right: 4%;
-  bottom: -8%;
-  width: 33%;
-  height: 46%;
-  transform: rotate(-0.7deg);
-}
-
-.montage-frame img {
+.hero-background img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  filter: grayscale(0.72) contrast(0.9) brightness(0.48) blur(2px);
-  transform: scale(1.02);
-}
-
-.montage-frame.is-empty {
-  opacity: 0.16;
+  object-position: center;
+  filter: grayscale(0.22) saturate(0.72) contrast(1.04) brightness(0.68) blur(1.5px);
+  transform: scale(1.015);
 }
 
 .hero-content {
@@ -3693,13 +3660,8 @@ body[data-page="admin"] .section-heading h1 {
     margin-left: 0;
   }
 
-  .montage-frame-primary {
-    inset: -3% 5% 8% 5%;
-  }
-
-  .montage-frame-secondary,
-  .montage-frame-tertiary {
-    opacity: 0.42;
+  .hero-background img {
+    object-position: 68% center;
   }
 
   .round-bar {

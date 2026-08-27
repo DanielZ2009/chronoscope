@@ -109,13 +109,30 @@ Allowed submission statuses:
 
 Approved cases appear in the public game as soon as Supabase returns them from `public.images`.
 
-## Shared Homepage Gallery
+## Shared Homepage Presentation
 
-The curator dashboard includes **Home Gallery** controls for the three homepage images and captions.
+The curator dashboard includes a separate **Hero background** control plus **Home
+Gallery** controls for the three framed homepage images and captions. The default
+hero uses `assets/chronoscope-archive-room.jpg`; changing it does not change or
+repeat the framed records below.
 
 These controls save to Supabase `public.site_settings`, so changes appear for every visitor without editing local browser storage. Use a public image URL or an existing deployed site path such as `assets/images/my_archive_image.jpg`.
 
 This does not upload binary files yet. For private/local image files, add them to the deployed `assets/` folder first or use Supabase Storage in a later version.
+
+## Map Labels
+
+Game, submission, and archive-record maps use Esri World Street Map by default so
+major place names are readable in English. The Leaflet layer control also retains
+standard OpenStreetMap as **Local names (OpenStreetMap)**. Both layers remain
+properly attributed in the map.
+
+## Share Results
+
+Copied results contain only the site, relevant date, total score and percentage,
+plus one coloured square per round. Green represents 80% or better, blue 60–79%,
+yellow 40–59%, and red below 40%. Dated challenges use their challenge date;
+practice and collection games use the completion date.
 
 ## Question Sets
 

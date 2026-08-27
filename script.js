@@ -41,6 +41,14 @@ const TIMELINE_BREAK_RATIO = 0.25;
 const DEFAULT_YEAR = 1900;
 const EMPTY_IMAGE_PLACEHOLDER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%23e7d6b8'/%3E%3C/svg%3E";
+const DEFAULT_HERO_BACKGROUND = "assets/chronoscope-archive-room.jpg";
+const ENGLISH_MAP_TILE_URL =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}";
+const LOCAL_MAP_TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const ENGLISH_MAP_ATTRIBUTION =
+  'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &mdash; <a href="https://goto.arcgisonline.com/maps/World_Street_Map">sources &amp; terms</a>';
+const LOCAL_MAP_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 const DEFAULT_HOME_IMAGES = [
   "",
   "",
@@ -72,6 +80,7 @@ const DEFAULT_OWNER_SETTINGS = {
   activeSetName: "All published cases",
   includeApprovedLocal: false,
   randomizeRounds: true,
+  heroBackground: DEFAULT_HERO_BACKGROUND,
   homeImage: DEFAULT_HOME_IMAGE,
   homeImages: DEFAULT_HOME_IMAGES,
   homeGallery: DEFAULT_HOME_GALLERY,
@@ -284,10 +293,14 @@ function showView(viewName) {
 function applyHomeGallery() {
   const settings = readPublicGameSettings();
   const gallery = resolveHomeGallery(settings);
+  const heroBackground = $("#heroBackgroundImage");
+  if (heroBackground) {
+    heroBackground.src = safeImageUrl(settings.heroBackground || DEFAULT_HERO_BACKGROUND);
+  }
   [
-    ["#homeImageOne", "#heroImageOne"],
-    ["#homeImageTwo", "#heroImageTwo"],
-    ["#homeImageThree", "#heroImageThree"],
+    ["#homeImageOne"],
+    ["#homeImageTwo"],
+    ["#homeImageThree"],
   ].forEach((selectors, index) => {
     selectors.forEach((selector) => setHomeImageSlot(selector, gallery[index]?.image));
   });
@@ -314,7 +327,7 @@ function setHomeImageSlot(selector, value) {
     return;
   }
 
-  const figure = image.closest(".archive-teaser, .montage-frame");
+  const figure = image.closest(".archive-teaser");
   const url = cleanString(value);
   if (!url) {
     image.removeAttribute("src");
@@ -810,10 +823,7 @@ function initRecordMap(record) {
       worldCopyJump: true,
       scrollWheelZoom: false,
     });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    }).addTo(state.recordMap);
+    addChronoscopeBaseLayers(state.recordMap);
   }
   if (state.recordMarker) {
     state.recordMarker.setLatLng(point);
@@ -1587,12 +1597,35 @@ function initMap() {
     worldCopyJump: true,
   }).setView([22, 12], 2);
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(state.map);
+  addChronoscopeBaseLayers(state.map);
 
   state.map.on("click", handleMapClick);
+}
+
+function addChronoscopeBaseLayers(map) {
+  const englishLabels = L.tileLayer(ENGLISH_MAP_TILE_URL, {
+    maxZoom: 19,
+    attribution: ENGLISH_MAP_ATTRIBUTION,
+  });
+  const localLabels = L.tileLayer(LOCAL_MAP_TILE_URL, {
+    maxZoom: 19,
+    attribution: LOCAL_MAP_ATTRIBUTION,
+  });
+
+  englishLabels.addTo(map);
+  const layerControl = L.control.layers(
+    {
+      "English labels": englishLabels,
+      "Local names (OpenStreetMap)": localLabels,
+    },
+    null,
+    { position: "topright", collapsed: true }
+  ).addTo(map);
+  const controlElement = layerControl.getContainer();
+  controlElement.setAttribute("aria-label", "Choose map label language");
+  controlElement.querySelector(".leaflet-control-layers-toggle")?.setAttribute("title", "Choose map labels");
+
+  return { englishLabels, localLabels, layerControl };
 }
 
 function createMapPinIcon(type) {
@@ -1967,13 +2000,10 @@ function showResults() {
   $("#resultRecordNote").textContent = `${state.activeChallenge?.label || "Chronoscope Game"} recorded on this device. Current daily streak: ${recordSummary.streak}.`;
 
   const shareText = [
-    "Chronoscope",
-    getShareChallengeLabel(),
-    `${formatNumber(totalScore)} / ${formatNumber(maxScore)}`,
-    "I placed images in space and time.",
-    state.activeChallenge?.shareUrl || OFFICIAL_SITE_URL,
-    "Can you read the traces?",
-  ].filter(Boolean).join("\n");
+    `chronoscope.world · ${getShareDateLabel()}`,
+    `${formatNumber(totalScore)} / ${formatNumber(maxScore)} · ${scorePercent}%`,
+    renderShareScoreGrid(state.results),
+  ].join("\n");
 
   $("#shareText").value = shareText;
   $("#copyResultStatus").textContent = "";
@@ -1993,12 +2023,29 @@ function showResults() {
   showView("results");
 }
 
-function getShareChallengeLabel() {
+function getShareDateLabel() {
   const context = state.activeChallenge || {};
-  if (context.type === "daily" && context.date) {
-    return `${context.label || "Daily Challenge"} | ${formatArchiveDate(context.date)}`;
+  const date = context.type === "daily" && context.date
+    ? new Date(`${context.date}T12:00:00`)
+    : new Date();
+  if (Number.isNaN(date.getTime())) {
+    return getLocalDateKey();
   }
-  return cleanString(context.label);
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date).replace(",", "");
+}
+
+function renderShareScoreGrid(results) {
+  return results.map((result) => {
+    const percent = scorePercentage(result.roundScore, MAX_ROUND_SCORE);
+    if (percent >= 80) return "🟩";
+    if (percent >= 60) return "🟦";
+    if (percent >= 40) return "🟨";
+    return "🟥";
+  }).join("");
 }
 
 function renderRoundTable(results) {
@@ -2215,10 +2262,7 @@ function initSubmissionMap() {
     worldCopyJump: true,
   }).setView([22, 12], 2);
 
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(state.submissionMap);
+  addChronoscopeBaseLayers(state.submissionMap);
 
   state.submissionMap.on("click", (event) => {
     state.pendingSubmissionLatLng = {
@@ -2669,6 +2713,10 @@ function renderCuratorHomeGalleryForm() {
   }
 
   const gallery = resolveHomeGallery(readPublicGameSettings());
+  setInputValue(
+    "#curatorHeroBackground",
+    readPublicGameSettings().heroBackground || DEFAULT_HERO_BACKGROUND
+  );
   setInputValue("#curatorHomeImageOne", gallery[0].image);
   setInputValue("#curatorHomePlaceOne", gallery[0].place);
   setInputValue("#curatorHomeTimeOne", gallery[0].time);
@@ -2690,10 +2738,11 @@ async function saveCuratorHomeGallery(event) {
     buildCuratorHomeGalleryEntry(1, "Two"),
     buildCuratorHomeGalleryEntry(2, "Three"),
   ];
+  const heroBackground = cleanString($("#curatorHeroBackground")?.value) || DEFAULT_HERO_BACKGROUND;
 
   status.textContent = "Saving home gallery...";
   try {
-    const nextSettings = await savePublicSettingsPatch({ homeGallery });
+    const nextSettings = await savePublicSettingsPatch({ homeGallery, heroBackground });
     state.publicSettings = normalizeOwnerSettings(nextSettings);
   } catch (error) {
     status.textContent = `Could not save home gallery: ${formatSupabaseError(error)}. Run migration 003_site_settings.sql if this is the first time using shared homepage controls.`;
@@ -2720,6 +2769,7 @@ function mapSettingsToSupabaseValue(settings) {
     activeSetId: normalized.activeSetId,
     activeSetName: normalized.activeSetName,
     randomizeRounds: normalized.randomizeRounds,
+    heroBackground: normalized.heroBackground,
     homeGallery: normalized.homeGallery,
   };
 }
@@ -3789,6 +3839,7 @@ function renderPublishingExports() {
     roundsPerGame: getConfiguredRoundCount(settings),
     activeSetId: "all",
     randomizeRounds: settings.randomizeRounds !== false,
+    heroBackground: settings.heroBackground || DEFAULT_HERO_BACKGROUND,
     homeGallery: resolveHomeGallery(settings),
   };
 
@@ -4344,6 +4395,7 @@ function normalizeOwnerSettings(settings = {}) {
     activeSetName: cleanString(merged.activeSetName) || "All published cases",
     includeApprovedLocal: Boolean(merged.includeApprovedLocal),
     randomizeRounds: merged.randomizeRounds !== false,
+    heroBackground: cleanString(merged.heroBackground) || DEFAULT_HERO_BACKGROUND,
     homeGallery,
     homeImages,
     homeImage: homeImages[0],
