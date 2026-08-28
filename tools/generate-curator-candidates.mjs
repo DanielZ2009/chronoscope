@@ -34,6 +34,7 @@ const TRUSTED_DOMAINS = [
   "iwm.org.uk",
   "getty.edu",
   "harvardartmuseums.org",
+  "clevelandart.org",
   "nypl.org",
   "jreast.co.jp",
   "commons.wikimedia.org",
