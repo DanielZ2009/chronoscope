@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-25" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-26" />
     <!-- Google tag (gtag.js). Public pages only; admin.html intentionally omits analytics. -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-4NTPNH9KXJ"></script>
     <script>
@@ -31,7 +31,7 @@
     </script>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-25" defer></script>
+    <script src="script.js?v=chronoscope-26" defer></script>
   </head>
   <body class="view-home" data-page="main">
     <header class="site-header">
@@ -358,31 +358,24 @@
                 </div>
                 <label>
                   Exact year
-                  <input id="yearInput" type="number" min="-3000" max="2100" step="1" />
+                  <input id="yearInput" type="number" min="0" max="2100" step="1" />
                 </label>
               </div>
               <div
                 id="timeTimeline"
                 class="time-timeline"
                 role="slider"
-                aria-label="Estimated year from 3000 BCE to 2100 CE"
-                aria-valuemin="-3000"
+                aria-label="Estimated year from 0 to 2100 CE"
+                aria-valuemin="0"
                 aria-valuemax="2100"
                 aria-valuenow="1900"
                 tabindex="0"
               >
                 <div class="time-track"></div>
-                <div class="time-era bc-era">BCE</div>
-                <div class="time-era ce-era">CE</div>
+                <div class="time-era ce-era">Common Era</div>
+                <div class="time-century-marks" id="timeCenturyMarks" aria-hidden="true"></div>
                 <div class="time-marker" id="timeMarker"></div>
-                <div class="time-ticks" aria-hidden="true">
-                  <span style="left: 0%">3000 BCE</span>
-                  <span style="left: 25%">1000 BCE</span>
-                  <span style="left: 49.2%">1 CE</span>
-                  <span style="left: 73.4%">1000 CE</span>
-                  <span style="left: 87.9%">1600 CE</span>
-                  <span style="left: 100%">2100 CE</span>
-                </div>
+                <div class="time-scale-labels" id="timeScaleLabels" aria-hidden="true"></div>
               </div>
             </section>
 
@@ -599,6 +592,25 @@
               reasoning, and geographical imagination. Submissions require
               verification before they can enter the game.
             </p>
+          </section>
+          <section class="about-maker-note">
+            <h3>A Student Project</h3>
+            <div>
+              <p>
+                I am a history-loving high-school student who also enjoys GeoGuessr.
+                Chronoscope began as my attempt to combine those interests in a public
+                digital-history experiment: a place where images can be read as evidence,
+                not simply identified from memory.
+              </p>
+              <p>
+                The project has been built with substantial AI assistance, and I know
+                that some parts may still feel noticeably machine-made or unfinished.
+                I apologize for those rough edges and am continuing to refine the research,
+                writing, and experience. Constructive suggestions are warmly welcomed and
+                appreciated. Please also share <strong>chronoscope.world</strong> with anyone
+                who might enjoy reading the past in place and time.
+              </p>
+            </div>
           </section>
         </div>
         <div class="about-standards-link">

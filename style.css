@@ -2452,11 +2452,6 @@ body[data-page="admin"] .owner-access-form .primary-button {
     flex: 1 1 120px;
   }
 
-  .time-ticks span:nth-child(4),
-  .time-ticks span:nth-child(5) {
-    display: none;
-  }
-
   .image-stage {
     min-height: 250px;
   }
@@ -5154,5 +5149,119 @@ body[data-page="admin"] .section-heading h1 {
 
   .methodology-closing .button-row {
     width: 100%;
+  }
+}
+
+/* Chronoscope 26: a linear Common Era scale with century divisions. */
+.time-timeline {
+  height: 96px;
+  user-select: none;
+}
+
+.time-timeline .ce-era {
+  top: 3px;
+  right: auto;
+  left: 0;
+  color: #8f887e;
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.time-timeline .time-track {
+  top: 34px;
+  height: 5px;
+  border-color: #544f47;
+  background: #292824;
+}
+
+.time-century-marks {
+  position: absolute;
+  top: 28px;
+  right: 0;
+  left: 0;
+  height: 20px;
+  pointer-events: none;
+}
+
+.time-century-mark {
+  position: absolute;
+  top: 5px;
+  width: 1px;
+  height: 12px;
+  background: #5e5950;
+  transform: translateX(-50%);
+}
+
+.time-century-mark.is-major {
+  top: 1px;
+  height: 20px;
+  background: #8c8273;
+}
+
+.time-timeline .time-marker {
+  top: 21px;
+  z-index: 2;
+  width: 13px;
+  height: 32px;
+}
+
+.time-scale-labels {
+  position: absolute;
+  right: 0;
+  bottom: 8px;
+  left: 0;
+  height: 22px;
+  color: #8f887e;
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+}
+
+.time-scale-label {
+  position: absolute;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.time-scale-label.is-start {
+  transform: none;
+}
+
+.time-scale-label.is-end {
+  transform: translateX(-100%);
+}
+
+.about-columns .about-maker-note {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(160px, 0.35fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 5vw, 5rem);
+  margin-top: clamp(1rem, 3vw, 2.5rem);
+  padding-top: clamp(1.25rem, 3vw, 2rem);
+}
+
+.about-maker-note p:first-child {
+  margin-top: 0;
+}
+
+.about-maker-note strong {
+  color: #d8cdbd;
+  font-weight: 600;
+}
+
+@media (max-width: 700px) {
+  .time-scale-label.is-secondary {
+    display: none;
+  }
+
+  .time-scale-labels {
+    font-size: 0.58rem;
+  }
+
+  .about-columns .about-maker-note {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
   }
 }

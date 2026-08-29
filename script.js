@@ -34,10 +34,10 @@ const MAX_ROUNDS = 20;
 const MAX_LOCATION_SCORE = 2500;
 const MAX_TIME_SCORE = 2500;
 const MAX_ROUND_SCORE = MAX_LOCATION_SCORE + MAX_TIME_SCORE;
-const YEAR_MIN = -3000;
+const YEAR_MIN = 0;
 const YEAR_MAX = 2100;
-const TIMELINE_BREAK_YEAR = -1000;
-const TIMELINE_BREAK_RATIO = 0.25;
+const TIMELINE_CENTURY_STEP = 100;
+const TIMELINE_LABEL_YEARS = [0, 500, 1000, 1500, 1800, 2100];
 const DEFAULT_YEAR = 1900;
 const SELF_HOSTED_IMAGE_MIRRORS = new Map([
   [
@@ -660,7 +660,7 @@ function renderArchiveCatalogue() {
         (tag === "all" || record.tags.includes(tag))
       );
     })
-    .sort((a, b) => Number(b.year) - Number(a.year) || a.title.localeCompare(b.title));
+    .sort((a, b) => Number(a.year) - Number(b.year) || a.title.localeCompare(b.title));
 
   count.textContent = `${records.length} of ${archiveRecords.length} published record${archiveRecords.length === 1 ? "" : "s"}`;
   if (records.length === 0) {
@@ -1369,11 +1369,10 @@ function setYearGuess(value) {
   const safeYear = Number.isFinite(numericValue)
     ? Math.min(YEAR_MAX, Math.max(YEAR_MIN, numericValue))
     : DEFAULT_YEAR;
-  const playableYear = safeYear === 0 ? 1 : safeYear;
 
-  $("#yearInput").value = playableYear;
-  $("#yearDisplay").textContent = formatYearLabel(playableYear);
-  updateTimelineMarker(playableYear);
+  $("#yearInput").value = safeYear;
+  $("#yearDisplay").textContent = formatYearLabel(safeYear);
+  updateTimelineMarker(safeYear);
 }
 
 function bindTimelineControl() {
@@ -1381,6 +1380,8 @@ function bindTimelineControl() {
   if (!timeline) {
     return;
   }
+
+  renderTimelineScale(timeline);
 
   const updateFromPointer = (event) => {
     const rect = timeline.getBoundingClientRect();
@@ -1422,30 +1423,39 @@ function bindTimelineControl() {
   });
 }
 
+function renderTimelineScale(timeline) {
+  const markContainer = $("#timeCenturyMarks", timeline);
+  const labelContainer = $("#timeScaleLabels", timeline);
+  if (!markContainer || !labelContainer) {
+    return;
+  }
+
+  const centuryCount = Math.floor((YEAR_MAX - YEAR_MIN) / TIMELINE_CENTURY_STEP);
+  markContainer.innerHTML = Array.from({ length: centuryCount + 1 }, (_, index) => {
+    const year = YEAR_MIN + index * TIMELINE_CENTURY_STEP;
+    const isMajor = year % 500 === 0 || year === YEAR_MAX;
+    return `<span class="time-century-mark${isMajor ? " is-major" : ""}" style="left: ${timelineRatioFromYear(year) * 100}%"></span>`;
+  }).join("");
+
+  labelContainer.innerHTML = TIMELINE_LABEL_YEARS.map((year, index) => {
+    const edgeClass = index === 0 ? " is-start" : index === TIMELINE_LABEL_YEARS.length - 1 ? " is-end" : "";
+    const secondaryClass = year === 500 || year === 1500 ? " is-secondary" : "";
+    return `<span class="time-scale-label${edgeClass}${secondaryClass}" style="left: ${timelineRatioFromYear(year) * 100}%">${formatNumber(year)}</span>`;
+  }).join("");
+}
+
 function yearFromTimelineRatio(ratio) {
   const safeRatio = Math.min(1, Math.max(0, ratio));
-  const year =
-    safeRatio <= TIMELINE_BREAK_RATIO
-      ? Math.round(YEAR_MIN + (safeRatio / TIMELINE_BREAK_RATIO) * (TIMELINE_BREAK_YEAR - YEAR_MIN))
-      : Math.round(
-          TIMELINE_BREAK_YEAR +
-            ((safeRatio - TIMELINE_BREAK_RATIO) / (1 - TIMELINE_BREAK_RATIO)) *
-              (YEAR_MAX - TIMELINE_BREAK_YEAR)
-        );
-  return year === 0 ? 1 : year;
+  return Math.round(YEAR_MIN + safeRatio * (YEAR_MAX - YEAR_MIN));
 }
 
 function timelineRatioFromYear(year) {
-  const safeYear = Math.min(YEAR_MAX, Math.max(YEAR_MIN, Number(year) || DEFAULT_YEAR));
-  if (safeYear <= TIMELINE_BREAK_YEAR) {
-    return ((safeYear - YEAR_MIN) / (TIMELINE_BREAK_YEAR - YEAR_MIN)) * TIMELINE_BREAK_RATIO;
-  }
-
-  return (
-    TIMELINE_BREAK_RATIO +
-    ((safeYear - TIMELINE_BREAK_YEAR) / (YEAR_MAX - TIMELINE_BREAK_YEAR)) *
-      (1 - TIMELINE_BREAK_RATIO)
+  const numericYear = Number(year);
+  const safeYear = Math.min(
+    YEAR_MAX,
+    Math.max(YEAR_MIN, Number.isFinite(numericYear) ? numericYear : DEFAULT_YEAR)
   );
+  return (safeYear - YEAR_MIN) / (YEAR_MAX - YEAR_MIN);
 }
 
 function updateTimelineMarker(year) {
@@ -4961,7 +4971,7 @@ function formatYearLabel(year) {
   if (numericYear < 0) {
     return `${formatNumber(Math.abs(numericYear))} BCE`;
   }
-  return `${formatNumber(numericYear || 1)} CE`;
+  return `${formatNumber(numericYear)} CE`;
 }
 
 function formatDistance(value) {
