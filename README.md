@@ -145,21 +145,6 @@ plus one coloured square per round. Green represents 80% or better, blue 60–79
 yellow 40–59%, and red below 40%. Dated challenges use their challenge date;
 practice and collection games use the completion date.
 
-## Question Sets
-
-The curator dashboard includes **Question Sets** controls.
-
-You can:
-
-- create named sets from approved cases
-- choose the active public set
-- switch back to all published cases
-- delete sets you no longer need
-
-Question sets save to Supabase `public.question_sets`. The active set is saved in `public.site_settings`, so it applies to every visitor.
-
-The **Show this collection in the public Archive** checkbox controls whether players can open that set from the Archive page. Existing sets become public when migration 005 is first run, so no current collection disappears.
-
 ## Dated Challenges And Archive
 
 Migration `005_daily_challenges_and_archive.sql` creates `public.daily_challenges` without changing any existing image, submission, or historical-record row.
@@ -167,11 +152,15 @@ Migration `005_daily_challenges_and_archive.sql` creates `public.daily_challenge
 In the curator dashboard:
 
 1. Open **Daily Challenges**.
-2. Choose a date, title, source collection, and number of cases.
-3. Click **Publish Dated Challenge**.
-4. The exact ordered case IDs are saved as a permanent snapshot for that date.
+2. Choose a date and public title.
+3. Select any approved cases from the archive picker.
+4. Arrange them with the earlier/later controls; case 01 is played first.
+5. Click **Save Daily Challenge**.
+6. Use **Edit** on a saved date to change its cases or order later.
 
-The public **Archive** page can replay published dates and public Question Sets. Exact links use `?daily=YYYY-MM-DD` or `?set=collection_id`, so two players opening the same link receive the same cases.
+The exact ordered case IDs are saved as a stable snapshot in Supabase. The public
+**Archive** page can replay published dates through `?daily=YYYY-MM-DD`, so two
+players opening the same date receive the same cases in the same order.
 
 Player history, best percentage, and daily streak are stored only in that browser's `localStorage`. They are labelled **On this device** and are not uploaded to Supabase.
 

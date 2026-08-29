@@ -162,8 +162,8 @@ const state = {
 const adminState = {
   staticImages: [],
   images: [],
-  questionSets: [],
   dailyChallenges: [],
+  dailySelectionIds: [],
   feedback: [],
   bound: false,
 };
@@ -2810,38 +2810,12 @@ function bindCuratorAdmin() {
 
   $("#approvedImageFilter")?.addEventListener("input", filterCuratorApprovedImages);
 
-  const questionSetForm = $("#curatorQuestionSetForm");
-  if (questionSetForm) {
-    questionSetForm.addEventListener("submit", saveCuratorQuestionSet);
-  }
-
-  const questionSetPicker = $("#curatorQuestionImagePicker");
-  if (questionSetPicker) {
-    questionSetPicker.addEventListener("change", updateCuratorQuestionSetCount);
-  }
-
-  const clearQuestionSetButton = $("#clearCuratorQuestionSetForm");
-  if (clearQuestionSetButton) {
-    clearQuestionSetButton.addEventListener("click", clearCuratorQuestionSetForm);
-  }
-
-  const saveActiveSetButton = $("#saveCuratorActiveSet");
-  if (saveActiveSetButton) {
-    saveActiveSetButton.addEventListener("click", saveCuratorActiveSet);
-  }
-
-  const activeSetSelect = $("#curatorActiveQuestionSet");
-  if (activeSetSelect) {
-    activeSetSelect.addEventListener("change", updateCuratorActiveSetNameFromSelection);
-  }
-
-  const questionSetList = $("#curatorQuestionSetList");
-  if (questionSetList) {
-    questionSetList.addEventListener("click", handleCuratorQuestionSetAction);
-  }
-
   $("#curatorDailyChallengeForm")?.addEventListener("submit", saveCuratorDailyChallenge);
   $("#clearCuratorDailyForm")?.addEventListener("click", clearCuratorDailyChallengeForm);
+  $("#curatorDailyDate")?.addEventListener("change", handleCuratorDailyDateChange);
+  $("#curatorDailyImagePicker")?.addEventListener("change", handleCuratorDailyImageSelection);
+  $("#curatorDailyImageFilter")?.addEventListener("input", filterCuratorDailyImagePicker);
+  $("#curatorDailySelection")?.addEventListener("click", handleCuratorDailySelectionAction);
   $("#curatorDailyChallengeList")?.addEventListener("click", handleCuratorDailyChallengeAction);
 }
 
@@ -2880,9 +2854,8 @@ async function loadCuratorDashboard() {
   renderCuratorApprovedImages([]);
   renderCuratorRejectedSubmissions([]);
   renderCuratorFeedback([]);
-  renderCuratorDailyChallenges([], [], []);
 
-  const [submissionsLoad, imagesLoad, questionSetsLoad, dailyChallengesLoad, feedbackLoad] = await Promise.allSettled([
+  const [submissionsLoad, imagesLoad, dailyChallengesLoad, feedbackLoad] = await Promise.allSettled([
     querySupabaseWithTimeout(
       client.from("submissions").select("*").order("created_at", { ascending: false }),
       "submissions"
@@ -2890,10 +2863,6 @@ async function loadCuratorDashboard() {
     querySupabaseWithTimeout(
       client.from("images").select("*").order("created_at", { ascending: false }),
       "images"
-    ),
-    querySupabaseWithTimeout(
-      client.from("question_sets").select("*").order("created_at", { ascending: true }),
-      "question sets"
     ),
     querySupabaseWithTimeout(
       client.from("daily_challenges").select("*").order("challenge_date", { ascending: false }),
@@ -2908,7 +2877,6 @@ async function loadCuratorDashboard() {
   const errors = [];
   let submissions = [];
   let images = [];
-  let questionSets = [];
   let dailyChallenges = [];
   let feedback = [];
   let feedbackUnavailable = false;
@@ -2931,16 +2899,6 @@ async function loadCuratorDashboard() {
     }
   } else {
     errors.push(`images: ${formatSupabaseError(imagesLoad.reason)}`);
-  }
-
-  if (questionSetsLoad.status === "fulfilled") {
-    if (questionSetsLoad.value.error) {
-      errors.push(`question sets: ${formatSupabaseError(questionSetsLoad.value.error)}`);
-    } else {
-      questionSets = (questionSetsLoad.value.data || []).map(normalizeQuestionSetRow);
-    }
-  } else {
-    errors.push(`question sets: ${formatSupabaseError(questionSetsLoad.reason)}`);
   }
 
   if (dailyChallengesLoad.status === "fulfilled") {
@@ -2973,7 +2931,6 @@ async function loadCuratorDashboard() {
     const pending = submissions.filter((entry) => entry.status === "pending");
     const rejected = submissions.filter((entry) => entry.status === "rejected");
     adminState.images = images;
-    adminState.questionSets = questionSets;
     adminState.dailyChallenges = dailyChallenges;
     adminState.feedback = feedback;
 
@@ -2981,8 +2938,7 @@ async function loadCuratorDashboard() {
     renderCuratorApprovedImages(images);
     renderCuratorRejectedSubmissions(rejected);
     renderCuratorFeedback(feedback, feedbackUnavailable);
-    renderCuratorQuestionSets(images, questionSets);
-    renderCuratorDailyChallenges(images, questionSets, dailyChallenges);
+    renderCuratorDailyChallenges(dailyChallenges);
 
     const loadedMessage = `${pending.length} pending submission${pending.length === 1 ? "" : "s"} ready for review.`;
     $("#curatorStatus").textContent = errors.length
@@ -3244,276 +3200,16 @@ async function handleCuratorFeedbackAction(event) {
   await loadCuratorDashboard();
 }
 
-function renderCuratorQuestionSets(images, sets) {
-  renderCuratorQuestionImagePicker(images, getCuratorSelectedImageIds());
-  renderCuratorActiveSetSelect(sets);
-  renderCuratorQuestionSetList(sets);
-}
-
-function renderCuratorQuestionImagePicker(images, selectedIds = []) {
-  const picker = $("#curatorQuestionImagePicker");
-  if (!picker) {
-    return;
-  }
-
-  const selected = new Set(selectedIds);
-  if (images.length === 0) {
-    picker.innerHTML = `<p class="field-note">No approved cases are available yet.</p>`;
-    updateCuratorQuestionSetCount();
-    return;
-  }
-
-  picker.innerHTML = [...images]
-    .sort((a, b) => Number(a.year) - Number(b.year) || cleanString(a.title).localeCompare(cleanString(b.title)))
-    .map((image) => {
-      const checked = selected.has(image.id) ? "checked" : "";
-      const year = image.year_range || image.year || "Unknown date";
-      return `
-        <div class="image-choice">
-          <label>
-            <input type="checkbox" value="${escapeAttribute(image.id)}" ${checked} />
-            <img src="${escapeAttribute(safeImageUrl(resolveArchiveImageUrl(image.image_url)))}" alt="${escapeAttribute(image.title || "Approved image")}" />
-            <span>
-              <strong>${escapeHtml(image.title || "Untitled image")}</strong>
-              <small>${escapeHtml(image.location_name || "No location")} | ${escapeHtml(String(year))}</small>
-            </span>
-          </label>
-        </div>
-      `;
-    })
-    .join("");
-
-  updateCuratorQuestionSetCount();
-}
-
-function renderCuratorActiveSetSelect(sets) {
-  const select = $("#curatorActiveQuestionSet");
-  if (!select) {
-    return;
-  }
-
-  const settings = readPublicGameSettings();
-  const activeSetId = cleanString(settings.activeSetId) || "all";
-  select.innerHTML = [
-    `<option value="all">All published cases</option>`,
-    ...sets.map((set) => `<option value="${escapeAttribute(set.id)}">${escapeHtml(set.title)} (${set.imageIds.length})</option>`),
-  ].join("");
-  select.value = sets.some((set) => set.id === activeSetId) ? activeSetId : "all";
-  const selectedSet = select.value === "all" ? null : sets.find((set) => set.id === select.value);
-  const savedName = cleanString(settings.activeSetName);
-  const fallbackName = selectedSet?.title || "All published cases";
-  const displayName = savedName && (select.value === "all" || savedName !== "All published cases") ? savedName : fallbackName;
-  setInputValue("#curatorActiveQuestionSetName", displayName);
-  setInputValue("#curatorRoundsPerGame", getConfiguredRoundCount(settings));
-}
-
-function renderCuratorQuestionSetList(sets) {
-  const container = $("#curatorQuestionSetList");
-  if (!container) {
-    return;
-  }
-
-  if (sets.length === 0) {
-    container.innerHTML = `
-      <section class="question-set-card">
-        <div>
-          <h3>No question sets yet</h3>
-          <p>Create a set from approved cases above.</p>
-        </div>
-      </section>
-    `;
-    return;
-  }
-
-  const activeSetId = cleanString(readPublicGameSettings().activeSetId) || "all";
-  container.innerHTML = sets
-    .map((set) => {
-      const active = set.id === activeSetId ? `<span class="status-pill">Active</span>` : "";
-      const archiveStatus = set.isPublic ? `<span class="status-pill">Archive</span>` : `<span class="status-pill">Private</span>`;
-      return `
-        <article class="question-set-card" data-curator-question-set-id="${escapeAttribute(set.id)}">
-          <div>
-            <h3>${escapeHtml(set.title)} ${active} ${archiveStatus}</h3>
-            <p>${escapeHtml(set.description || "No description.")}</p>
-            <p class="source-line">${set.imageIds.length} case${set.imageIds.length === 1 ? "" : "s"} | ID: ${escapeHtml(set.id)}</p>
-          </div>
-          <div class="button-row">
-            <button class="secondary-button compact-button" type="button" data-action="edit-question-set">Edit</button>
-            <button class="primary-button compact-button" type="button" data-action="activate-question-set">Use</button>
-            <button class="danger-button compact-button" type="button" data-action="delete-question-set">Delete</button>
-          </div>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function getCuratorSelectedImageIds() {
-  return $$("#curatorQuestionImagePicker input[type='checkbox']:checked").map((input) => input.value);
-}
-
-function updateCuratorQuestionSetCount() {
-  const label = $("#curatorQuestionSetCount");
-  if (label) {
-    const count = getCuratorSelectedImageIds().length;
-    label.textContent = `${count} selected`;
-  }
-}
-
-function clearCuratorQuestionSetForm() {
-  setInputValue("#curatorQuestionSetTitle", "");
-  setInputValue("#curatorQuestionSetId", "");
-  setInputValue("#curatorQuestionSetDescription", "");
-  if ($("#curatorQuestionSetPublic")) {
-    $("#curatorQuestionSetPublic").checked = true;
-  }
-  renderCuratorQuestionImagePicker(adminState.images, []);
-  const status = $("#curatorQuestionSetStatus");
-  if (status) {
-    status.textContent = "";
-  }
-}
-
-function loadCuratorQuestionSetIntoForm(setId) {
-  const set = adminState.questionSets.find((entry) => entry.id === setId);
-  if (!set) {
-    return;
-  }
-
-  setInputValue("#curatorQuestionSetTitle", set.title);
-  setInputValue("#curatorQuestionSetId", set.id);
-  setInputValue("#curatorQuestionSetDescription", set.description);
-  if ($("#curatorQuestionSetPublic")) {
-    $("#curatorQuestionSetPublic").checked = set.isPublic;
-  }
-  renderCuratorQuestionImagePicker(adminState.images, set.imageIds);
-  $("#curatorQuestionSetStatus").textContent = `Editing "${set.title}".`;
-}
-
-async function saveCuratorQuestionSet(event) {
-  event.preventDefault();
-
-  const client = getSupabaseClient();
-  const status = $("#curatorQuestionSetStatus");
-  const title = cleanString($("#curatorQuestionSetTitle")?.value);
-  const id = slugify($("#curatorQuestionSetId")?.value || title);
-  const description = cleanString($("#curatorQuestionSetDescription")?.value);
-  const imageIds = getCuratorSelectedImageIds();
-  const isPublic = $("#curatorQuestionSetPublic")?.checked !== false;
-
-  if (!title || !id) {
-    status.textContent = "Add a set title first.";
-    return;
-  }
-  if (imageIds.length === 0) {
-    status.textContent = "Choose at least one approved case for this set.";
-    return;
-  }
-
-  status.textContent = "Saving question set...";
-  const { error } = await client.from("question_sets").upsert({
-    id,
-    title,
-    description: description || null,
-    image_ids: imageIds,
-    is_public: isPublic,
-  });
-
-  if (error) {
-    status.textContent = `Could not save question set: ${formatSupabaseError(error)}. Run migration 005_daily_challenges_and_archive.sql if needed.`;
-    return;
-  }
-
-  status.textContent = `Saved "${title}".`;
-  await refreshCuratorDashboard();
-  loadCuratorQuestionSetIntoForm(id);
-}
-
-async function saveCuratorActiveSet() {
-  const select = $("#curatorActiveQuestionSet");
-  const status = $("#curatorQuestionSetStatus");
-  const activeSetId = cleanString(select?.value) || "all";
-  const activeSetName = cleanString($("#curatorActiveQuestionSetName")?.value) || getCuratorActiveSetDefaultName(activeSetId);
-  const roundsPerGame = getConfiguredRoundCount({ roundsPerGame: $("#curatorRoundsPerGame")?.value });
-  await savePublicSettingsPatch({ activeSetId, activeSetName, roundsPerGame });
-  status.textContent = `Public game now uses "${activeSetName}" with ${roundsPerGame} question${roundsPerGame === 1 ? "" : "s"} per game.`;
-  await refreshCuratorDashboard();
-}
-
-function updateCuratorActiveSetNameFromSelection() {
-  const select = $("#curatorActiveQuestionSet");
-  const activeSetId = cleanString(select?.value) || "all";
-  setInputValue("#curatorActiveQuestionSetName", getCuratorActiveSetDefaultName(activeSetId));
-}
-
-function getCuratorActiveSetDefaultName(activeSetId) {
-  if (!activeSetId || activeSetId === "all") {
-    return "All published cases";
-  }
-
-  const set = adminState.questionSets.find((entry) => entry.id === activeSetId);
-  return set?.title || "Selected set";
-}
-
-async function handleCuratorQuestionSetAction(event) {
-  const button = event.target.closest("button[data-action]");
-  const card = event.target.closest("[data-curator-question-set-id]");
-  if (!button || !card) {
-    return;
-  }
-
-  const setId = card.dataset.curatorQuestionSetId;
-  if (button.dataset.action === "edit-question-set") {
-    loadCuratorQuestionSetIntoForm(setId);
-  }
-  if (button.dataset.action === "activate-question-set") {
-    const select = $("#curatorActiveQuestionSet");
-    if (select) {
-      select.value = setId;
-      updateCuratorActiveSetNameFromSelection();
-    }
-    await saveCuratorActiveSet();
-  }
-  if (button.dataset.action === "delete-question-set") {
-    await deleteCuratorQuestionSet(setId);
-  }
-}
-
-async function deleteCuratorQuestionSet(setId) {
-  const set = adminState.questionSets.find((entry) => entry.id === setId);
-  if (!set || !window.confirm(`Delete question set "${set.title}"?`)) {
-    return;
-  }
-
-  const client = getSupabaseClient();
-  const { error } = await client.from("question_sets").delete().eq("id", setId);
-  if (error) {
-    $("#curatorQuestionSetStatus").textContent = formatSupabaseError(error);
-    return;
-  }
-
-  if (readPublicGameSettings().activeSetId === setId) {
-    await savePublicSettingsPatch({ activeSetId: "all", activeSetName: "All published cases" });
-  }
-
-  clearCuratorQuestionSetForm();
-  $("#curatorQuestionSetStatus").textContent = "Question set deleted.";
-  await refreshCuratorDashboard();
-}
-
-function renderCuratorDailyChallenges(images, sets, challenges) {
-  const sourceSelect = $("#curatorDailySourceSet");
-  if (sourceSelect) {
-    const currentValue = sourceSelect.value;
-    sourceSelect.innerHTML = [
-      `<option value="all">All approved cases</option>`,
-      ...sets.map((set) => `<option value="${escapeAttribute(set.id)}">${escapeHtml(set.title)} (${set.imageIds.length})</option>`),
-    ].join("");
-    sourceSelect.value = sets.some((set) => set.id === currentValue) ? currentValue : "all";
-  }
-
+function renderCuratorDailyChallenges(challenges) {
   if (!$("#curatorDailyDate")?.value) {
-    clearCuratorDailyChallengeForm();
+    const todayChallenge = challenges.find((challenge) => challenge.date === getLocalDateKey());
+    if (todayChallenge) {
+      setCuratorDailyChallengeForm(todayChallenge);
+    } else {
+      clearCuratorDailyChallengeForm();
+    }
+  } else {
+    renderCuratorDailyBuilder();
   }
 
   const container = $("#curatorDailyChallengeList");
@@ -3531,38 +3227,214 @@ function renderCuratorDailyChallenges(images, sets, challenges) {
     return;
   }
 
-  container.innerHTML = challenges
-    .map((challenge) => {
-      const sourceSet = sets.find((set) => set.id === challenge.questionSetId);
+  container.innerHTML = challenges.map(renderCuratorDailyChallengeRow).join("");
+}
+
+function clearCuratorDailyChallengeForm() {
+  setInputValue("#curatorDailyDate", getLocalDateKey());
+  setInputValue("#curatorDailyTitle", "Daily Challenge");
+  adminState.dailySelectionIds = [];
+  renderCuratorDailyBuilder();
+  if ($("#curatorDailyChallengeStatus")) {
+    $("#curatorDailyChallengeStatus").textContent = "";
+  }
+}
+
+function setCuratorDailyChallengeForm(challenge) {
+  setInputValue("#curatorDailyDate", challenge.date);
+  setInputValue("#curatorDailyTitle", challenge.title);
+  adminState.dailySelectionIds = [...challenge.imageIds];
+  renderCuratorDailyBuilder();
+}
+
+function renderCuratorDailyBuilder() {
+  renderCuratorDailySelection();
+  renderCuratorDailyImagePicker();
+}
+
+function renderCuratorDailySelection() {
+  const container = $("#curatorDailySelection");
+  const count = $("#curatorDailySelectionCount");
+  if (!container || !count) {
+    return;
+  }
+
+  const selected = adminState.dailySelectionIds;
+  count.textContent = `${selected.length} selected`;
+  if (selected.length === 0) {
+    container.innerHTML = `
+      <div class="daily-selection-empty">
+        <strong>No cases selected</strong>
+        <span>Choose cases from the approved archive below.</span>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = selected
+    .map((imageId, index) => {
+      const image = adminState.images.find((entry) => String(entry.id) === imageId);
+      const year = image?.year_range || image?.year || "Unknown date";
       return `
-        <article class="daily-challenge-row" data-curator-daily-date="${escapeAttribute(challenge.date)}">
-          <time datetime="${escapeAttribute(challenge.date)}">${escapeHtml(formatArchiveDate(challenge.date))}</time>
-          <div>
-            <strong>${escapeHtml(challenge.title)}</strong>
-            <small>${challenge.imageIds.length} cases${sourceSet ? ` | ${escapeHtml(sourceSet.title)}` : ""}</small>
-          </div>
-          <span class="status-pill">${challenge.published ? "Published" : "Hidden"}</span>
-          <div class="button-row">
-            <button class="secondary-button compact-button" type="button" data-action="edit-daily">Edit</button>
-            <button class="secondary-button compact-button" type="button" data-action="toggle-daily">${challenge.published ? "Hide" : "Publish"}</button>
-            <button class="danger-button compact-button" type="button" data-action="delete-daily">Delete</button>
-          </div>
+        <article class="daily-selection-row" data-daily-selection-id="${escapeAttribute(imageId)}">
+          <span class="daily-order-number">${String(index + 1).padStart(2, "0")}</span>
+          ${
+            image
+              ? `<img src="${escapeAttribute(safeImageUrl(resolveArchiveImageUrl(image.image_url)))}" alt="" />`
+              : '<span class="daily-missing-image" aria-hidden="true">?</span>'
+          }
+          <span class="daily-selection-copy">
+            <strong>${escapeHtml(image?.title || "Unavailable case")}</strong>
+            <small>${escapeHtml(image?.location_name || "No longer present in approved cases")} | ${escapeHtml(String(year))}</small>
+          </span>
+          <span class="daily-order-controls">
+            <button type="button" data-action="move-daily-up" aria-label="Move case ${index + 1} earlier" title="Move earlier" ${index === 0 ? "disabled" : ""}>&uarr;</button>
+            <button type="button" data-action="move-daily-down" aria-label="Move case ${index + 1} later" title="Move later" ${index === selected.length - 1 ? "disabled" : ""}>&darr;</button>
+            <button type="button" data-action="remove-daily-image" aria-label="Remove case ${index + 1}" title="Remove">&times;</button>
+          </span>
         </article>
       `;
     })
     .join("");
 }
 
-function clearCuratorDailyChallengeForm() {
-  setInputValue("#curatorDailyDate", getLocalDateKey());
+function renderCuratorDailyImagePicker() {
+  const picker = $("#curatorDailyImagePicker");
+  if (!picker) {
+    return;
+  }
+  const previousScrollTop = picker.scrollTop;
+
+  const images = adminState.images
+    .filter((image) => image.approved)
+    .sort((a, b) => Number(a.year) - Number(b.year) || cleanString(a.title).localeCompare(cleanString(b.title)));
+  if (images.length === 0) {
+    picker.innerHTML = '<p class="field-note">No approved cases are available yet.</p>';
+    return;
+  }
+
+  picker.innerHTML = images
+    .map((image) => {
+      const imageId = String(image.id);
+      const orderIndex = adminState.dailySelectionIds.indexOf(imageId);
+      const checked = orderIndex >= 0 ? "checked" : "";
+      const selectedClass = orderIndex >= 0 ? " is-selected" : "";
+      const year = image.year_range || image.year || "Unknown date";
+      const searchText = [image.title, image.location_name, year, ...(image.tags || [])]
+        .map(cleanString)
+        .join(" ")
+        .toLowerCase();
+      return `
+        <div class="image-choice daily-image-choice${selectedClass}" data-daily-picker-id="${escapeAttribute(imageId)}" data-search="${escapeAttribute(searchText)}">
+          <label>
+            <input type="checkbox" data-daily-image-id="${escapeAttribute(imageId)}" ${checked} />
+            <img src="${escapeAttribute(safeImageUrl(resolveArchiveImageUrl(image.image_url)))}" alt="${escapeAttribute(image.title || "Approved image")}" />
+            <span>
+              <strong>${escapeHtml(image.title || "Untitled image")}</strong>
+              <small>${escapeHtml(image.location_name || "No location")} | ${escapeHtml(String(year))}</small>
+              <em>${orderIndex >= 0 ? `Case ${String(orderIndex + 1).padStart(2, "0")}` : "Add to challenge"}</em>
+            </span>
+          </label>
+        </div>
+      `;
+    })
+    .join("");
+  picker.scrollTop = previousScrollTop;
+  filterCuratorDailyImagePicker();
+}
+
+function handleCuratorDailyImageSelection(event) {
+  const input = event.target.closest("input[data-daily-image-id]");
+  if (!input) {
+    return;
+  }
+
+  const imageId = input.dataset.dailyImageId;
+  const selected = adminState.dailySelectionIds;
+  if (input.checked && !selected.includes(imageId)) {
+    if (selected.length >= MAX_ROUNDS) {
+      input.checked = false;
+      $("#curatorDailyChallengeStatus").textContent = `A challenge can contain up to ${MAX_ROUNDS} cases.`;
+      return;
+    }
+    selected.push(imageId);
+  }
+  if (!input.checked) {
+    adminState.dailySelectionIds = selected.filter((id) => id !== imageId);
+  }
+  renderCuratorDailyBuilder();
+}
+
+function handleCuratorDailySelectionAction(event) {
+  const button = event.target.closest("button[data-action]");
+  const row = event.target.closest("[data-daily-selection-id]");
+  if (!button || !row) {
+    return;
+  }
+
+  const selected = adminState.dailySelectionIds;
+  const index = selected.indexOf(row.dataset.dailySelectionId);
+  if (index < 0) {
+    return;
+  }
+  if (button.dataset.action === "remove-daily-image") {
+    selected.splice(index, 1);
+  }
+  if (button.dataset.action === "move-daily-up" && index > 0) {
+    [selected[index - 1], selected[index]] = [selected[index], selected[index - 1]];
+  }
+  if (button.dataset.action === "move-daily-down" && index < selected.length - 1) {
+    [selected[index + 1], selected[index]] = [selected[index], selected[index + 1]];
+  }
+  renderCuratorDailyBuilder();
+}
+
+function filterCuratorDailyImagePicker() {
+  const query = cleanString($("#curatorDailyImageFilter")?.value).toLowerCase();
+  $$("#curatorDailyImagePicker [data-search]").forEach((choice) => {
+    choice.hidden = Boolean(query) && !cleanString(choice.dataset.search).includes(query);
+  });
+}
+
+function handleCuratorDailyDateChange() {
+  const date = cleanString($("#curatorDailyDate")?.value);
+  const challenge = adminState.dailyChallenges.find((entry) => entry.date === date);
+  if (challenge) {
+    loadCuratorDailyChallengeIntoForm(date);
+    return;
+  }
   setInputValue("#curatorDailyTitle", "Daily Challenge");
-  setInputValue("#curatorDailyRoundCount", getConfiguredRoundCount(readPublicGameSettings()));
-  if ($("#curatorDailySourceSet")) {
-    $("#curatorDailySourceSet").value = "all";
-  }
-  if ($("#curatorDailyChallengeStatus")) {
-    $("#curatorDailyChallengeStatus").textContent = "";
-  }
+  adminState.dailySelectionIds = [];
+  renderCuratorDailyBuilder();
+  $("#curatorDailyChallengeStatus").textContent = date ? `Creating a new challenge for ${formatArchiveDate(date)}.` : "Choose a challenge date.";
+}
+
+function renderCuratorDailyChallengeRow(challenge) {
+  const orderedCases = challenge.imageIds
+    .map((imageId, index) => {
+      const image = adminState.images.find((entry) => String(entry.id) === imageId);
+      const year = image?.year_range || image?.year || "Unknown date";
+      return `<li><span>${String(index + 1).padStart(2, "0")}</span><strong>${escapeHtml(image?.title || "Unavailable case")}</strong><small>${escapeHtml(String(year))}</small></li>`;
+    })
+    .join("");
+  return `
+    <article class="daily-challenge-entry" data-curator-daily-date="${escapeAttribute(challenge.date)}">
+      <div class="daily-challenge-row">
+        <time datetime="${escapeAttribute(challenge.date)}">${escapeHtml(formatArchiveDate(challenge.date))}</time>
+        <div>
+          <strong>${escapeHtml(challenge.title)}</strong>
+          <small>${challenge.imageIds.length} case${challenge.imageIds.length === 1 ? "" : "s"} in saved order</small>
+        </div>
+        <span class="status-pill">${challenge.published ? "Published" : "Hidden"}</span>
+        <div class="button-row">
+          <button class="secondary-button compact-button" type="button" data-action="edit-daily">Edit</button>
+          <button class="secondary-button compact-button" type="button" data-action="toggle-daily">${challenge.published ? "Hide" : "Publish"}</button>
+          <button class="danger-button compact-button" type="button" data-action="delete-daily">Delete</button>
+        </div>
+      </div>
+      <ol class="daily-challenge-case-order" aria-label="Saved play order">${orderedCases}</ol>
+    </article>
+  `;
 }
 
 async function saveCuratorDailyChallenge(event) {
@@ -3570,40 +3442,32 @@ async function saveCuratorDailyChallenge(event) {
   const status = $("#curatorDailyChallengeStatus");
   const date = cleanString($("#curatorDailyDate")?.value);
   const title = cleanString($("#curatorDailyTitle")?.value) || "Daily Challenge";
-  const sourceSetId = cleanString($("#curatorDailySourceSet")?.value) || "all";
-  const requestedCount = getConfiguredRoundCount({ roundsPerGame: $("#curatorDailyRoundCount")?.value });
   const approvedIds = new Set(adminState.images.filter((image) => image.approved).map((image) => String(image.id)));
-  const sourceSet = sourceSetId === "all"
-    ? null
-    : adminState.questionSets.find((set) => set.id === sourceSetId);
-  const candidateIds = (sourceSet ? sourceSet.imageIds : [...approvedIds])
-    .map(String)
-    .filter((id) => approvedIds.has(id));
+  const imageIds = adminState.dailySelectionIds.map(String);
 
   if (!date) {
     status.textContent = "Choose a challenge date.";
     return;
   }
-  if (candidateIds.length === 0) {
-    status.textContent = "The selected source has no approved cases.";
+  if (imageIds.length === 0) {
+    status.textContent = "Choose at least one approved case for this challenge.";
+    return;
+  }
+  if (imageIds.some((id) => !approvedIds.has(id))) {
+    status.textContent = "Remove unavailable or unpublished cases before saving.";
     return;
   }
 
   const existing = adminState.dailyChallenges.find((challenge) => challenge.date === date);
-  if (existing && !window.confirm(`Replace the dated challenge for ${formatArchiveDate(date)}?`)) {
-    return;
-  }
-
-  const imageIds = seededShuffle([...candidateIds], `daily:${date}:${sourceSetId}`).slice(0, requestedCount);
-  status.textContent = "Publishing dated challenge...";
+  status.textContent = "Saving daily challenge...";
   const client = getSupabaseClient();
   const { error } = await client.from("daily_challenges").upsert({
     challenge_date: date,
     title,
     image_ids: imageIds,
-    question_set_id: sourceSet?.id || null,
+    question_set_id: null,
     round_count: imageIds.length,
-    published: true,
+    published: existing?.published ?? true,
   });
 
   if (error) {
@@ -3611,7 +3475,7 @@ async function saveCuratorDailyChallenge(event) {
     return;
   }
 
-  status.textContent = `Published ${imageIds.length} stable case${imageIds.length === 1 ? "" : "s"} for ${formatArchiveDate(date)}.`;
+  status.textContent = `Saved ${imageIds.length} case${imageIds.length === 1 ? "" : "s"} in this order for ${formatArchiveDate(date)}.`;
   await loadCuratorDashboard();
 }
 
@@ -3620,13 +3484,9 @@ function loadCuratorDailyChallengeIntoForm(date) {
   if (!challenge) {
     return;
   }
-  setInputValue("#curatorDailyDate", challenge.date);
-  setInputValue("#curatorDailyTitle", challenge.title);
-  setInputValue("#curatorDailyRoundCount", challenge.roundCount);
-  if ($("#curatorDailySourceSet")) {
-    $("#curatorDailySourceSet").value = challenge.questionSetId || "all";
-  }
+  setCuratorDailyChallengeForm(challenge);
   $("#curatorDailyChallengeStatus").textContent = `Editing ${formatArchiveDate(challenge.date)}.`;
+  $("#curatorDailyChallengeForm")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function handleCuratorDailyChallengeAction(event) {

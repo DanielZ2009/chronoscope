@@ -5426,3 +5426,247 @@ body[data-page="admin"] .section-heading h1 {
     min-width: 0;
   }
 }
+
+/* Chronoscope 28: direct, ordered daily challenge curation. */
+.daily-selection-panel,
+.daily-picker-panel {
+  min-width: 0;
+  padding-top: 1.25rem;
+  border-top: 1px solid #403c36;
+}
+
+.daily-builder-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.55rem;
+}
+
+.daily-builder-heading h3 {
+  margin: 0.15rem 0 0;
+  color: #e4dccf;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.25rem, 2vw, 1.65rem);
+  font-weight: 500;
+}
+
+.daily-selection-list {
+  display: grid;
+  gap: 1px;
+  margin-top: 0.8rem;
+  background: #3c3933;
+  border: 1px solid #3c3933;
+}
+
+.daily-selection-empty {
+  display: grid;
+  gap: 0.2rem;
+  padding: 1rem;
+  color: #817b72;
+  background: #151513;
+}
+
+.daily-selection-empty strong {
+  color: #bbb3a7;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-weight: 500;
+}
+
+.daily-selection-row {
+  display: grid;
+  grid-template-columns: 34px 58px minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  min-height: 58px;
+  padding: 0.45rem 0.55rem;
+  background: #181816;
+}
+
+.daily-selection-row > img,
+.daily-missing-image {
+  width: 58px;
+  height: 42px;
+  border: 1px solid #4b4740;
+  object-fit: cover;
+}
+
+.daily-missing-image {
+  display: grid;
+  place-items: center;
+  color: #8e887f;
+  background: #211f1c;
+}
+
+.daily-order-number {
+  color: #b69a68;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+}
+
+.daily-selection-copy {
+  min-width: 0;
+}
+
+.daily-selection-copy strong,
+.daily-selection-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.daily-selection-copy strong {
+  color: #ddd5c8;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-weight: 500;
+}
+
+.daily-selection-copy small {
+  margin-top: 0.16rem;
+  color: #817b72;
+  font-size: 0.7rem;
+}
+
+.daily-order-controls {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.daily-order-controls button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  min-height: 0;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #514c44;
+  border-radius: 2px;
+  color: #d4cdc1;
+  background: #211f1c;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 1rem;
+}
+
+.daily-order-controls button:hover,
+.daily-order-controls button:focus-visible {
+  border-color: #8e332d;
+  color: #fff9ed;
+  background: #351916;
+}
+
+.daily-order-controls button:disabled {
+  opacity: 0.28;
+}
+
+.daily-image-picker {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  max-height: 600px;
+  margin-top: 0.8rem;
+}
+
+.daily-image-choice {
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.daily-image-choice.is-selected {
+  border-color: #8e332d;
+  background: #281917;
+}
+
+.daily-image-choice label {
+  cursor: pointer;
+}
+
+.daily-image-choice em {
+  display: block;
+  margin-top: 0.28rem;
+  color: #b69a68;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.64rem;
+  font-style: normal;
+  text-transform: uppercase;
+}
+
+.daily-challenge-entry {
+  border-bottom: 1px solid #3e3a34;
+}
+
+.daily-challenge-entry .daily-challenge-row {
+  border-bottom: 0;
+}
+
+.daily-challenge-case-order {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0 0 0.7rem;
+  padding: 0;
+  list-style: none;
+  background: #35322d;
+}
+
+.daily-challenge-case-order li {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 0.55rem;
+  align-items: center;
+  min-width: 0;
+  padding: 0.48rem 0.6rem;
+  color: #8e887f;
+  background: #171715;
+}
+
+.daily-challenge-case-order span,
+.daily-challenge-case-order small {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.62rem;
+}
+
+.daily-challenge-case-order span {
+  color: #b69a68;
+}
+
+.daily-challenge-case-order strong {
+  overflow: hidden;
+  color: #cfc7ba;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .daily-builder-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .daily-builder-heading .catalogue-filter {
+    width: 100%;
+  }
+
+  .daily-builder-heading > .status-pill {
+    align-self: flex-start;
+  }
+
+  .daily-selection-row {
+    grid-template-columns: 28px 46px minmax(0, 1fr);
+  }
+
+  .daily-selection-row > img,
+  .daily-missing-image {
+    width: 46px;
+    height: 36px;
+  }
+
+  .daily-order-controls {
+    grid-column: 2 / -1;
+    justify-content: flex-end;
+  }
+
+  .daily-challenge-case-order {
+    grid-template-columns: 1fr;
+  }
+}

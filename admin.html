@@ -14,9 +14,9 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-27" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-28" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-27" defer></script>
+    <script src="script.js?v=chronoscope-28" defer></script>
   </head>
   <body data-page="admin">
     <header class="site-header">
@@ -143,62 +143,16 @@
         <section class="owner-card">
           <div class="admin-section-head">
             <div>
-              <p class="kicker">Daily Challenge</p>
-              <h2>Question Sets</h2>
+              <p class="kicker">Reader Correspondence</p>
+              <h2>Player Notes</h2>
             </div>
           </div>
           <p>
-            Create named sets from approved cases, then choose which set the public
-            game should use. Select “All published cases” to use everything.
+            Private thoughts sent after a completed game. These notes are never
+            displayed publicly and may be deleted after review.
           </p>
-
-          <form id="curatorQuestionSetForm" class="owner-form">
-            <label>
-              Set name
-              <input id="curatorQuestionSetTitle" placeholder="Early Modern Asia" />
-            </label>
-            <label>
-              Set ID
-              <input id="curatorQuestionSetId" placeholder="early_modern_asia" />
-            </label>
-            <label class="full-span">
-              Description
-              <textarea id="curatorQuestionSetDescription" rows="2"></textarea>
-            </label>
-            <label class="checkbox-field full-span">
-              <input id="curatorQuestionSetPublic" type="checkbox" checked />
-              Show this collection in the public Archive
-            </label>
-            <div class="full-span">
-              <p class="field-note" id="curatorQuestionSetCount">0 selected</p>
-              <div id="curatorQuestionImagePicker" class="image-picker"></div>
-            </div>
-            <div class="form-actions full-span">
-              <button class="primary-button" type="submit">Save Question Set</button>
-              <button class="secondary-button" type="button" id="clearCuratorQuestionSetForm">New Set</button>
-            </div>
-          </form>
-
-          <div class="owner-form curator-active-set-form">
-            <label>
-              Active public set
-              <select id="curatorActiveQuestionSet"></select>
-            </label>
-            <label>
-              Public set name
-              <input id="curatorActiveQuestionSetName" placeholder="Today's Challenge" />
-            </label>
-            <label>
-              Questions per game
-              <input id="curatorRoundsPerGame" type="number" min="1" max="20" step="1" />
-            </label>
-            <div class="form-actions">
-              <button class="primary-button" type="button" id="saveCuratorActiveSet">Save Public Game Settings</button>
-            </div>
-          </div>
-
-          <div id="curatorQuestionSetList" class="question-set-list"></div>
-          <p class="loading-note" id="curatorQuestionSetStatus" aria-live="polite"></p>
+          <p class="field-note" id="curatorFeedbackStatus"></p>
+          <div id="curatorFeedbackList" class="curator-feedback-list"></div>
         </section>
 
         <section class="owner-card">
@@ -209,8 +163,9 @@
             </div>
           </div>
           <p>
-            Publish an ordered challenge snapshot for a specific date. Once saved,
-            its cases remain stable even when new material enters the archive.
+            Choose the exact cases for a date and arrange them in play order. Once
+            saved, this ordered selection remains stable even when new material enters
+            the archive.
           </p>
           <form id="curatorDailyChallengeForm" class="owner-form curator-daily-form">
             <label>
@@ -221,16 +176,36 @@
               Public title
               <input id="curatorDailyTitle" placeholder="Today's Challenge" />
             </label>
-            <label>
-              Source collection
-              <select id="curatorDailySourceSet"></select>
-            </label>
-            <label>
-              Number of cases
-              <input id="curatorDailyRoundCount" type="number" min="1" max="20" step="1" />
-            </label>
+
+            <section class="daily-selection-panel full-span" aria-labelledby="dailySelectionTitle">
+              <div class="daily-builder-heading">
+                <div>
+                  <p class="kicker">Play order</p>
+                  <h3 id="dailySelectionTitle">Cases in this challenge</h3>
+                </div>
+                <span class="status-pill" id="curatorDailySelectionCount">0 selected</span>
+              </div>
+              <p class="field-note">Use the arrow controls to change the order. Players receive case 01 first.</p>
+              <div id="curatorDailySelection" class="daily-selection-list"></div>
+            </section>
+
+            <section class="daily-picker-panel full-span" aria-labelledby="dailyArchivePickerTitle">
+              <div class="daily-builder-heading">
+                <div>
+                  <p class="kicker">Approved archive</p>
+                  <h3 id="dailyArchivePickerTitle">Choose cases</h3>
+                </div>
+                <label class="catalogue-filter">
+                  <span class="sr-only">Filter challenge cases</span>
+                  <input id="curatorDailyImageFilter" type="search" placeholder="Filter the archive..." />
+                </label>
+              </div>
+              <p class="field-note">Select an archive image to add it to the end of the challenge. Select it again to remove it.</p>
+              <div id="curatorDailyImagePicker" class="image-picker daily-image-picker"></div>
+            </section>
+
             <div class="form-actions full-span">
-              <button class="primary-button" type="submit">Publish Dated Challenge</button>
+              <button class="primary-button" type="submit">Save Daily Challenge</button>
               <button class="secondary-button" type="button" id="clearCuratorDailyForm">New Date</button>
             </div>
           </form>
@@ -266,21 +241,6 @@
           </div>
           <p class="field-note" id="approvedImageCount"></p>
           <div id="approvedImagesList" class="curator-list compact-list"></div>
-        </section>
-
-        <section class="owner-card">
-          <div class="admin-section-head">
-            <div>
-              <p class="kicker">Reader Correspondence</p>
-              <h2>Player Notes</h2>
-            </div>
-          </div>
-          <p>
-            Private thoughts sent after a completed game. These notes are never
-            displayed publicly and may be deleted after review.
-          </p>
-          <p class="field-note" id="curatorFeedbackStatus"></p>
-          <div id="curatorFeedbackList" class="curator-feedback-list"></div>
         </section>
 
         <section class="owner-card">
