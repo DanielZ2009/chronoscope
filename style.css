@@ -5265,3 +5265,164 @@ body[data-page="admin"] .section-heading h1 {
     gap: 0.6rem;
   }
 }
+
+/* Chronoscope 27: final-round cartographic review. */
+.results-map-section {
+  margin-top: clamp(2rem, 5vw, 4.5rem);
+  padding-top: clamp(1.25rem, 3vw, 2rem);
+  border-top: 1px solid #45413a;
+}
+
+.results-map-heading {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.8fr) minmax(280px, 1.2fr);
+  gap: clamp(1.5rem, 5vw, 5rem);
+  align-items: end;
+  margin-bottom: 1.25rem;
+}
+
+.results-map-heading h3 {
+  max-width: 16ch;
+  margin: 0.25rem 0 0;
+  color: var(--bone-bright);
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.8rem, 4vw, 3.6rem);
+  font-weight: 500;
+  line-height: 1.02;
+}
+
+.results-map-heading > p {
+  max-width: 620px;
+  margin: 0;
+  color: #9d978e;
+  line-height: 1.65;
+}
+
+.results-map {
+  width: 100%;
+  height: clamp(440px, 62vh, 680px);
+  overflow: hidden;
+  border: 1px solid #514c43;
+  background: #151513;
+}
+
+.results-map-unavailable {
+  display: grid;
+  height: 100%;
+  margin: 0;
+  place-items: center;
+  color: #9d978e;
+}
+
+.results-map-pin {
+  border: 0;
+  background: transparent;
+}
+
+.results-map-pin span {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 2px solid #eee4d4;
+  border-radius: 50%;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.42);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.results-map-pin-guess span {
+  color: #171513;
+  background: #b49456;
+}
+
+.results-map-pin-answer span {
+  color: #fff9ed;
+  background: var(--archive-red);
+}
+
+.results-map-popup {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 210px;
+  color: #302922;
+}
+
+.results-map-popup strong {
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 1rem;
+}
+
+.results-map-popup span {
+  color: #675c50;
+  font-size: 0.78rem;
+}
+
+.results-map-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  border-right: 1px solid #403d37;
+  border-bottom: 1px solid #403d37;
+}
+
+.results-map-summary button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.18rem 0.7rem;
+  min-height: 78px;
+  padding: 0.75rem;
+  border: 0;
+  border-top: 1px solid #403d37;
+  border-left: 1px solid #403d37;
+  border-radius: 0;
+  color: #d7d0c5;
+  background: #171715;
+  text-align: left;
+}
+
+.results-map-summary button:hover,
+.results-map-summary button:focus-visible {
+  color: #fff9ed;
+  background: #211e1b;
+}
+
+.results-map-summary button > span {
+  grid-row: 1 / 3;
+  color: #b49456;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.68rem;
+}
+
+.results-map-summary strong {
+  overflow: hidden;
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.results-map-summary small {
+  color: #8f887e;
+  font-size: 0.68rem;
+}
+
+@media (max-width: 700px) {
+  .results-map-heading {
+    grid-template-columns: 1fr;
+    gap: 0.8rem;
+  }
+
+  .results-map {
+    height: 430px;
+  }
+
+  .results-map-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .results-map-summary button {
+    min-width: 0;
+  }
+}

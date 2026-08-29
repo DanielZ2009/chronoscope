@@ -155,6 +155,8 @@ const state = {
   recordReturnUrl: "",
   recordMap: null,
   recordMarker: null,
+  resultsMap: null,
+  resultsMapRounds: new Map(),
 };
 
 const adminState = {
@@ -230,6 +232,7 @@ async function initMainPage() {
   bindSubmissionForm();
   bindCopyButtons();
   bindResultFeedback();
+  bindResultsMapControls();
   bindArchiveControls();
   showSubmissionConnectionStatus();
 
@@ -1516,6 +1519,11 @@ function beginGame(rounds, challengeContext) {
   state.isRevealed = false;
   state.activeChallenge = challengeContext;
   state.resultRecorded = false;
+  if (state.resultsMap) {
+    state.resultsMap.remove();
+    state.resultsMap = null;
+  }
+  state.resultsMapRounds.clear();
 
   trackAnalyticsEvent("start_game", {
     round_count: state.rounds.length,
@@ -2092,6 +2100,133 @@ function showResults() {
     score_percent: scorePercent,
   });
   showView("results");
+  window.setTimeout(renderResultsMap, 100);
+}
+
+function bindResultsMapControls() {
+  $("#resultsMapSummary")?.addEventListener("click", (event) => {
+    const control = event.target.closest("button[data-results-round]");
+    if (!control) {
+      return;
+    }
+    focusResultsMapRound(Number(control.dataset.resultsRound));
+  });
+}
+
+function renderResultsMap() {
+  const container = $("#resultsMap");
+  const summary = $("#resultsMapSummary");
+  if (!container || !summary) {
+    return;
+  }
+
+  summary.innerHTML = renderResultsMapSummary(state.results);
+  if (typeof L === "undefined" || state.results.length === 0) {
+    container.innerHTML = '<p class="results-map-unavailable">The map could not be prepared for this reading.</p>';
+    return;
+  }
+
+  if (state.resultsMap) {
+    state.resultsMap.remove();
+  }
+  state.resultsMapRounds.clear();
+  state.resultsMap = L.map(container, {
+    minZoom: 2,
+    worldCopyJump: true,
+    scrollWheelZoom: false,
+  }).setView([22, 12], 2);
+  addChronoscopeBaseLayers(state.resultsMap);
+
+  const allPoints = [];
+  state.results.forEach((result) => {
+    const guessPoint = [result.guessedLat, result.guessedLng];
+    const answerPoint = [result.actualLat, result.actualLng];
+    const line = L.polyline([guessPoint, answerPoint], {
+      color: "#9f8d70",
+      weight: 2,
+      opacity: 0.72,
+      dashArray: "6 7",
+    }).addTo(state.resultsMap);
+    const guessMarker = L.marker(guessPoint, {
+      icon: createResultsMapIcon("guess", result.roundNumber),
+      zIndexOffset: 100,
+    }).addTo(state.resultsMap).bindPopup(renderResultsMapPopup(result, "guess"));
+    const answerMarker = L.marker(answerPoint, {
+      icon: createResultsMapIcon("answer", result.roundNumber),
+      zIndexOffset: 200,
+    }).addTo(state.resultsMap).bindPopup(renderResultsMapPopup(result, "answer"));
+
+    state.resultsMapRounds.set(result.roundNumber, {
+      line,
+      guessMarker,
+      answerMarker,
+      distanceKm: result.distanceKm,
+    });
+    allPoints.push(guessPoint, answerPoint);
+  });
+
+  const bounds = L.latLngBounds(allPoints);
+  if (bounds.isValid()) {
+    state.resultsMap.fitBounds(bounds, { padding: [46, 46], maxZoom: 7 });
+  }
+  window.setTimeout(() => state.resultsMap?.invalidateSize(), 80);
+}
+
+function createResultsMapIcon(type, roundNumber) {
+  return L.divIcon({
+    className: `results-map-pin results-map-pin-${type}`,
+    html: `<span>${escapeHtml(String(roundNumber))}</span>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -18],
+  });
+}
+
+function renderResultsMapPopup(result, type) {
+  if (type === "guess") {
+    return `
+      <div class="results-map-popup">
+        <strong>Round ${escapeHtml(String(result.roundNumber))}: Your placement</strong>
+        <span>${escapeHtml(formatYearLabel(result.guessedYear))}</span>
+        <span>${escapeHtml(formatPreciseCoordinate(result.guessedLat))}, ${escapeHtml(formatPreciseCoordinate(result.guessedLng))}</span>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="results-map-popup">
+      <strong>Round ${escapeHtml(String(result.roundNumber))}: ${escapeHtml(result.title)}</strong>
+      <span>${escapeHtml(result.locationName)} · ${escapeHtml(result.yearRange || formatYearLabel(result.actualYear))}</span>
+      <span>${escapeHtml(formatDistance(result.distanceKm))} away · ${escapeHtml(formatNumber(result.yearError))} years off</span>
+    </div>
+  `;
+}
+
+function renderResultsMapSummary(results) {
+  return results
+    .map(
+      (result) => `
+        <button type="button" data-results-round="${escapeAttribute(result.roundNumber)}" aria-label="Focus round ${escapeAttribute(result.roundNumber)} on the review map">
+          <span>${String(result.roundNumber).padStart(2, "0")}</span>
+          <strong>${escapeHtml(result.title)}</strong>
+          <small>${escapeHtml(formatDistance(result.distanceKm))} · ${escapeHtml(formatNumber(result.yearError))} years</small>
+        </button>
+      `
+    )
+    .join("");
+}
+
+function focusResultsMapRound(roundNumber) {
+  const mapRound = state.resultsMapRounds.get(roundNumber);
+  if (!state.resultsMap || !mapRound) {
+    return;
+  }
+
+  state.resultsMap.fitBounds(mapRound.line.getBounds(), {
+    padding: [64, 64],
+    maxZoom: getRevealMaxZoom(mapRound.distanceKm),
+  });
+  mapRound.answerMarker.openPopup();
 }
 
 function bindResultFeedback() {

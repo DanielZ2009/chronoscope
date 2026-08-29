@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-26" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-27" />
     <!-- Google tag (gtag.js). Public pages only; admin.html intentionally omits analytics. -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-4NTPNH9KXJ"></script>
     <script>
@@ -31,7 +31,7 @@
     </script>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-26" defer></script>
+    <script src="script.js?v=chronoscope-27" defer></script>
   </head>
   <body class="view-home" data-page="main">
     <header class="site-header">
@@ -405,6 +405,21 @@
           <p id="resultRecordNote" class="result-record-note"></p>
         </div>
 
+        <section class="results-map-section" aria-labelledby="resultsMapTitle">
+          <div class="results-map-heading">
+            <div>
+              <p class="kicker">The whole reading</p>
+              <h3 id="resultsMapTitle">Your journey through space and time</h3>
+            </div>
+            <p>
+              Each numbered pair joins your placement to the historical record.
+              Select a round below to examine it again.
+            </p>
+          </div>
+          <div id="resultsMap" class="results-map" aria-label="Map of all round guesses and correct locations"></div>
+          <div id="resultsMapSummary" class="results-map-summary" aria-label="Round map summary"></div>
+        </section>
+
         <div class="results-grid">
           <section class="results-breakdown">
             <h3>Your Readings</h3>
@@ -597,10 +612,12 @@
             <h3>A Student Project</h3>
             <div>
               <p>
-                I am a history-loving high-school student who also enjoys GeoGuessr.
-                Chronoscope began as my attempt to combine those interests in a public
-                digital-history experiment: a place where images can be read as evidence,
-                not simply identified from memory.
+                Hi! I'm a high-school student with a liking for history and geography,
+                and I love playing Geoguessr. This website is an attempt for me to combine
+                these interests, and to dabble a bit in public and digital history. I
+                intentionally added public submission to this archive so that it can
+                hopefully grow in size and scale to better educate people who visit this
+                site and have fun!
               </p>
               <p>
                 The project has been built with substantial AI assistance, and I know
@@ -608,7 +625,7 @@
                 I apologize for those rough edges and am continuing to refine the research,
                 writing, and experience. Constructive suggestions are warmly welcomed and
                 appreciated. Please also share <strong>chronoscope.world</strong> with anyone
-                who might enjoy reading the past in place and time.
+                who might enjoy this kind of game.
               </p>
             </div>
           </section>
