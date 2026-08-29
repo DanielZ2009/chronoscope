@@ -14,9 +14,9 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-24" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-25" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-24" defer></script>
+    <script src="script.js?v=chronoscope-25" defer></script>
   </head>
   <body data-page="admin">
     <header class="site-header">
@@ -266,6 +266,21 @@
           </div>
           <p class="field-note" id="approvedImageCount"></p>
           <div id="approvedImagesList" class="curator-list compact-list"></div>
+        </section>
+
+        <section class="owner-card">
+          <div class="admin-section-head">
+            <div>
+              <p class="kicker">Reader Correspondence</p>
+              <h2>Player Notes</h2>
+            </div>
+          </div>
+          <p>
+            Private thoughts sent after a completed game. These notes are never
+            displayed publicly and may be deleted after review.
+          </p>
+          <p class="field-note" id="curatorFeedbackStatus"></p>
+          <div id="curatorFeedbackList" class="curator-feedback-list"></div>
         </section>
 
         <section class="owner-card">

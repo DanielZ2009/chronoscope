@@ -26,10 +26,11 @@ chronoscope/
     site_settings.json
     pending_submissions.json
   assets/
-    images/
+    records/
   supabase/
     migrations/
       001_chronoscope_schema.sql
+      006_archive_visibility_and_feedback.sql
   tools/
     generate-curator-candidates.mjs
   research/
@@ -48,10 +49,11 @@ chronoscope/
 4. Paste and run `supabase/migrations/003_site_settings.sql` to enable shared homepage gallery controls.
 5. Paste and run `supabase/migrations/004_question_sets_and_submission_dedupe.sql` to enable global question sets, rejected-submission deletion, duplicate submission prevention, and placeholder cleanup.
 6. Paste and run `supabase/migrations/005_daily_challenges_and_archive.sql` to enable stable dated challenges and public Archive collections.
-7. Go to **Project Settings > API**.
-8. Copy the Project URL.
-9. Copy the anon/public/publishable key.
-10. In `script.js`, set:
+7. Paste and run `supabase/migrations/006_archive_visibility_and_feedback.sql` to enable staged Archive publication and private post-game notes.
+8. Go to **Project Settings > API**.
+9. Copy the Project URL.
+10. Copy the anon/public/publishable key.
+11. In `script.js`, set:
 
 ```js
 const SUPABASE_URL = "https://your-project-ref.supabase.co";
@@ -74,6 +76,7 @@ This project currently treats every authenticated Supabase user as a curator. Th
 
 - `anon` can select only rows where `approved = true`.
 - `authenticated` can select, insert, update, and delete images.
+- `archive_visible` controls Explore visibility independently of playability.
 
 `public.submissions`:
 
@@ -91,6 +94,12 @@ This project currently treats every authenticated Supabase user as a curator. Th
 - `anon` can select only collections where `is_public = true`.
 - `authenticated` curators can manage all collections.
 
+`public.feedback`:
+
+- `anon` and `authenticated` visitors can insert a note of 1-2,000 characters.
+- Public visitors cannot read, update, or delete notes.
+- `authenticated` curators can read and delete notes.
+
 Allowed submission statuses:
 
 - `pending`
@@ -104,8 +113,10 @@ Allowed submission statuses:
 3. Review **Pending Submissions**.
 4. Edit title, image URL, location, coordinates, year, year range, case note, historical record, source, rights, difficulty, tags, or admin notes.
 5. Click **Edit** to save review edits.
-6. Click **Publish to Chronoscope** to insert a new approved row into `public.images` and mark the original submission as approved.
-7. Click **Reject Submission** to keep the submission with `status = 'rejected'`.
+6. Leave **Show in the public Archive immediately** off when a new case should be playable before it becomes browsable.
+7. Click **Publish to Chronoscope** to insert a new approved row into `public.images` and mark the original submission as approved.
+8. Open the case under **Approved Cases** later and enable **Show in the public Archive** when it is ready for Explore.
+9. Click **Reject Submission** to keep the submission with `status = 'rejected'`.
 
 Approved cases appear in the public game as soon as Supabase returns them from `public.images`.
 
@@ -166,7 +177,9 @@ Player history, best percentage, and daily streak are stored only in that browse
 
 ## Public Record Catalogue
 
-Every approved row in `public.images` also appears in the public record catalogue.
+Approved rows remain playable, but only rows with `archive_visible = true` appear
+in the public record catalogue. Existing records default to visible; newly reviewed
+cases default to **Game first** unless the curator opts into immediate Archive listing.
 Visitors can search the collection and filter it by period, medium, or any existing
 tag. Medium is derived conservatively from the record tags: paintings, prints, maps,
 and objects retain those labels, while other playable historical images are treated
@@ -183,8 +196,23 @@ Record, source links, rights note, index terms, appearances in dated challenges 
 collections, and related records. Round reveals and final results link directly to
 these records.
 
-This feature uses the existing `images.tags`, `source`, `rights`, and other approved
-metadata. It requires no database migration and does not alter existing records.
+This feature uses `images.tags`, `source`, `rights`, `archive_visible`, and the other
+approved metadata. Run migration 006 before using staged Archive publication.
+
+## Private Player Notes
+
+After a completed game, players can send a short thought or piece of advice to the
+curator. The note includes only the message and game context such as score and
+challenge label. It appears in **Curator Dashboard > Player Notes** and is never
+publicly readable. The curator may delete a note after reviewing it.
+
+## Self-Hosted Image Mirrors
+
+Known institutional CDN failures can be mapped to local copies in
+`SELF_HOSTED_IMAGE_MIRRORS` inside `script.js`. The four Art Institute works added
+in August 2026 are served from `assets/records/`, while their institutional source
+links remain in the database. Attribution and reuse notes are recorded in
+`assets/records/README.md`.
 
 ## Editorial Standards
 
@@ -340,7 +368,7 @@ To verify:
 2. Open **Google Analytics > Reports > Realtime**.
 3. Visit the public site in a normal browser window.
 4. Start a game, submit a test proposal, open About, and finish a game.
-5. Confirm these events appear: `start_game`, `submit_photo`, `open_about_page`, `view_results`, and `complete_game`.
+5. Confirm these events appear: `start_game`, `submit_photo`, `submit_feedback`, `open_about_page`, `view_results`, and `complete_game`.
 
 If events do not appear immediately, try GA4 **DebugView** or test from a browser without analytics blockers.
 

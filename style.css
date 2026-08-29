@@ -2479,6 +2479,135 @@ body[data-page="admin"] .owner-access-form .primary-button {
   }
 }
 
+/* Post-game correspondence and curator archive controls. */
+.result-feedback {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.55fr) minmax(0, 1fr);
+  gap: clamp(1.5rem, 5vw, 5rem);
+  margin-top: clamp(2.5rem, 6vw, 5rem);
+  padding-top: clamp(1.5rem, 3vw, 2.5rem);
+  border-top: 1px solid #45413a;
+  color: #c8c1b6;
+}
+
+.result-feedback h3 {
+  margin: 0.25rem 0 0.7rem;
+  color: var(--bone-bright);
+  font-family: "Source Serif 4", Georgia, serif;
+  font-size: clamp(1.55rem, 3vw, 2.35rem);
+  font-weight: 500;
+}
+
+.result-feedback > div > p:last-child {
+  max-width: 42ch;
+  color: #9e978d;
+  line-height: 1.65;
+}
+
+.result-feedback form,
+.result-feedback label {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.result-feedback label {
+  color: #b69a68;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.result-feedback textarea {
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+  color: #ded7cc;
+  background: #171715;
+  border-color: #4a453e;
+}
+
+.curator-row-statuses {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.status-pill.is-muted {
+  color: #a8a096;
+  background: #292722;
+  border-color: #48443d;
+}
+
+.curator-checkbox {
+  align-items: flex-start;
+}
+
+.curator-checkbox > span {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.curator-checkbox small {
+  color: #878178;
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.curator-feedback-list {
+  border-top: 1px solid #403c36;
+}
+
+.curator-feedback-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.36fr) minmax(0, 1fr) auto;
+  gap: 1rem;
+  align-items: start;
+  padding: 0.9rem 0.35rem;
+  border-bottom: 1px solid #3b3832;
+}
+
+.curator-feedback-row time,
+.curator-feedback-row small {
+  display: block;
+}
+
+.curator-feedback-row time {
+  color: #b69a68;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.7rem;
+}
+
+.curator-feedback-row small {
+  margin-top: 0.3rem;
+  color: #817b72;
+  line-height: 1.45;
+}
+
+.curator-feedback-row p {
+  margin: 0;
+  color: #d4cdc1;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .result-feedback,
+  .curator-feedback-row {
+    grid-template-columns: 1fr;
+  }
+
+  .curator-row-statuses {
+    display: none;
+  }
+
+  .curator-feedback-row .danger-button {
+    width: fit-content;
+  }
+}
+
 @media (max-width: 480px) {
   .hero-rule span:last-child {
     display: none;

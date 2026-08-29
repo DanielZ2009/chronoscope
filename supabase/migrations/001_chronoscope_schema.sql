@@ -21,6 +21,7 @@ create table if not exists public.images (
   difficulty text,
   tags text[],
   approved boolean default true,
+  archive_visible boolean not null default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -50,8 +51,22 @@ create table if not exists public.submissions (
   constraint submissions_status_check check (status in ('pending', 'approved', 'rejected'))
 );
 
+create table if not exists public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  message text not null,
+  score integer,
+  max_score integer,
+  score_percent integer,
+  challenge_label text,
+  challenge_date date,
+  created_at timestamptz not null default now(),
+  constraint feedback_message_length_check check (char_length(trim(message)) between 1 and 2000),
+  constraint feedback_score_percent_check check (score_percent is null or score_percent between 0 and 100)
+);
+
 alter table public.images
-  add column if not exists updated_at timestamptz default now();
+  add column if not exists updated_at timestamptz default now(),
+  add column if not exists archive_visible boolean not null default true;
 
 alter table public.submissions
   add column if not exists difficulty text,
@@ -106,6 +121,7 @@ execute function public.set_updated_at();
 
 alter table public.images enable row level security;
 alter table public.submissions enable row level security;
+alter table public.feedback enable row level security;
 
 drop policy if exists "Public can read approved images" on public.images;
 create policy "Public can read approved images"
@@ -151,13 +167,40 @@ for delete
 to authenticated
 using (status = 'rejected');
 
+drop policy if exists "Public can send player notes" on public.feedback;
+create policy "Public can send player notes"
+on public.feedback
+for insert
+to anon, authenticated
+with check (char_length(trim(message)) between 1 and 2000);
+
+drop policy if exists "Authenticated curators can read player notes" on public.feedback;
+create policy "Authenticated curators can read player notes"
+on public.feedback
+for select
+to authenticated
+using (true);
+
+drop policy if exists "Authenticated curators can delete player notes" on public.feedback;
+create policy "Authenticated curators can delete player notes"
+on public.feedback
+for delete
+to authenticated
+using (true);
+
 revoke all on public.images from anon, authenticated;
 revoke all on public.submissions from anon, authenticated;
+revoke all on public.feedback from anon, authenticated;
 grant usage on schema public to anon, authenticated;
 grant select on public.images to anon;
 grant insert on public.submissions to anon;
+grant insert on public.feedback to anon;
 grant select, insert, update, delete on public.images to authenticated;
 grant select, insert, update, delete on public.submissions to authenticated;
+grant insert, select, delete on public.feedback to authenticated;
+
+create index if not exists feedback_created_at_idx
+on public.feedback (created_at desc);
 
 -- Small-project policy note:
 -- Authenticated users can curate submissions and images because this project is

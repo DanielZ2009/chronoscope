@@ -20,7 +20,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&amp;family=IBM+Plex+Sans:wght@400;500;600;700&amp;family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&amp;display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="style.css?v=chronoscope-24" />
+    <link rel="stylesheet" href="style.css?v=chronoscope-25" />
     <!-- Google tag (gtag.js). Public pages only; admin.html intentionally omits analytics. -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-4NTPNH9KXJ"></script>
     <script>
@@ -31,7 +31,7 @@
     </script>
     <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="script.js?v=chronoscope-24" defer></script>
+    <script src="script.js?v=chronoscope-25" defer></script>
   </head>
   <body class="view-home" data-page="main">
     <header class="site-header">
@@ -430,6 +430,25 @@
             <p class="loading-note" id="copyResultStatus"></p>
           </section>
         </div>
+
+        <section class="result-feedback" aria-labelledby="resultFeedbackTitle">
+          <div>
+            <p class="kicker">A note for the curator</p>
+            <h3 id="resultFeedbackTitle">What did you notice?</h3>
+            <p>
+              Share a thought about the cases, difficulty, sources, or interface.
+              Notes are private and appear only at the curator's desk.
+            </p>
+          </div>
+          <form id="resultFeedbackForm">
+            <label for="resultFeedbackMessage">Your thoughts or advice</label>
+            <textarea id="resultFeedbackMessage" maxlength="2000" rows="4" required></textarea>
+            <div class="button-row">
+              <button class="primary-button" type="submit" id="sendResultFeedback">Send to Curator</button>
+            </div>
+            <p class="loading-note" id="resultFeedbackStatus" aria-live="polite"></p>
+          </form>
+        </section>
       </section>
 
       <section class="screen submit-screen" data-view="submit" id="submit">

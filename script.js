@@ -39,6 +39,40 @@ const YEAR_MAX = 2100;
 const TIMELINE_BREAK_YEAR = -1000;
 const TIMELINE_BREAK_RATIO = 0.25;
 const DEFAULT_YEAR = 1900;
+const SELF_HOSTED_IMAGE_MIRRORS = new Map([
+  [
+    "https://www.artic.edu/iiif/2/f8fd76e9-c396-5678-36ed-6a348c904d27/full/1600,/0/default.jpg",
+    {
+      path: "assets/records/paris-street-rainy-day.jpg",
+      source: "https://commons.wikimedia.org/wiki/File:Gustave_Caillebotte_-_Paris_Street,_Rainy_Day_-_1964.336_-_Art_Institute_of_Chicago.jpg",
+      rights: "The self-hosted delivery copy is marked CC0 on Wikimedia Commons.",
+    },
+  ],
+  [
+    "https://www.artic.edu/iiif/2/827d02ef-6765-9728-c07e-52ad22b73fd3/full/1600,/0/default.jpg",
+    {
+      path: "assets/records/waterloo-bridge-sunlight-effect.jpg",
+      source: "https://commons.wikimedia.org/wiki/File:Monet_-_Waterloo_Bridge,_Sunlight_Effect,_1903.jpg",
+      rights: "The self-hosted delivery copy is credited to Claude Monet / Art Institute of Chicago / Wikimedia Commons under CC BY-SA 4.0.",
+    },
+  ],
+  [
+    "https://www.artic.edu/iiif/2/0ff20364-c795-c2ca-c1e8-e5a848f09554/full/1600,/0/default.jpg",
+    {
+      path: "assets/records/place-du-havre-paris.jpg",
+      source: "https://commons.wikimedia.org/wiki/File:The_Place_du_Havre,_Paris.jpg",
+      rights: "The self-hosted delivery copy is marked CC0 on Wikimedia Commons.",
+    },
+  ],
+  [
+    "https://www.artic.edu/iiif/2/b55d836c-ee20-59f8-1f0c-a95e09905361/full/1600,/0/default.jpg",
+    {
+      path: "assets/records/interior-st-marks-venice.jpg",
+      source: "https://commons.wikimedia.org/wiki/File:David_Dalhoff_Neal_-_Interior_of_St._Mark%27s,_Venice_-_1887.232_-_Art_Institute_of_Chicago.jpg",
+      rights: "The self-hosted delivery copy reproduces a public-domain work from the Art Institute's open-access collection.",
+    },
+  ],
+]);
 const EMPTY_IMAGE_PLACEHOLDER =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 3'%3E%3Crect width='4' height='3' fill='%23e7d6b8'/%3E%3C/svg%3E";
 const DEFAULT_HERO_BACKGROUND = "assets/chronoscope-archive-room.jpg";
@@ -128,6 +162,7 @@ const adminState = {
   images: [],
   questionSets: [],
   dailyChallenges: [],
+  feedback: [],
   bound: false,
 };
 
@@ -194,6 +229,7 @@ async function initMainPage() {
   bindSubmissionLocationControls();
   bindSubmissionForm();
   bindCopyButtons();
+  bindResultFeedback();
   bindArchiveControls();
   showSubmissionConnectionStatus();
 
@@ -560,7 +596,7 @@ function bindArchiveControls() {
 }
 
 function populateArchiveFilters() {
-  const records = state.staticImages.filter(isPlayableImage);
+  const records = getArchiveVisibleImages();
   const periodSelect = $("#archivePeriodFilter");
   const mediumSelect = $("#archiveMediumFilter");
   const tagSelect = $("#archiveTagFilter");
@@ -611,8 +647,8 @@ function renderArchiveCatalogue() {
   const period = cleanString($("#archivePeriodFilter")?.value) || "all";
   const medium = cleanString($("#archiveMediumFilter")?.value) || "all";
   const tag = cleanString($("#archiveTagFilter")?.value) || "all";
-  const records = state.staticImages
-    .filter(isPlayableImage)
+  const archiveRecords = getArchiveVisibleImages();
+  const records = archiveRecords
     .filter((record) => {
       const haystack = [record.title, record.locationName, record.yearRange, record.source, ...record.tags]
         .join(" ")
@@ -626,7 +662,7 @@ function renderArchiveCatalogue() {
     })
     .sort((a, b) => Number(b.year) - Number(a.year) || a.title.localeCompare(b.title));
 
-  count.textContent = `${records.length} of ${state.staticImages.length} published record${state.staticImages.length === 1 ? "" : "s"}`;
+  count.textContent = `${records.length} of ${archiveRecords.length} published record${archiveRecords.length === 1 ? "" : "s"}`;
   if (records.length === 0) {
     container.innerHTML = `
       <div class="catalogue-empty">
@@ -638,6 +674,10 @@ function renderArchiveCatalogue() {
   }
 
   container.innerHTML = records.map(renderArchiveRecordCard).join("");
+}
+
+function getArchiveVisibleImages() {
+  return state.staticImages.filter((record) => isPlayableImage(record) && record.archiveVisible !== false);
 }
 
 function renderArchiveRecordCard(record, options = {}) {
@@ -803,7 +843,7 @@ function renderRecordAppearances(record) {
 function renderRelatedRecords(record) {
   const recordTags = new Set(record.tags.map((tag) => tag.toLowerCase()));
   const related = state.staticImages
-    .filter((entry) => entry.id !== record.id)
+    .filter((entry) => entry.id !== record.id && entry.archiveVisible !== false)
     .map((entry) => {
       const sharedTags = entry.tags.filter((tag) => recordTags.has(tag.toLowerCase())).length;
       const sameMedium = getArchiveMedium(entry) === getArchiveMedium(record) ? 1 : 0;
@@ -1116,11 +1156,13 @@ function isPlayableImage(image) {
 function normalizeImageEntry(entry) {
   const year = Number(entry.year);
   const title = cleanString(entry.title) || "Untitled image";
+  const originalImageUrl = cleanString(entry.image);
+  const mirror = SELF_HOSTED_IMAGE_MIRRORS.get(originalImageUrl);
 
   return {
     id: cleanString(entry.id) || `${slugify(title)}_${Date.now()}`,
     title,
-    image: cleanString(entry.image),
+    image: resolveArchiveImageUrl(entry.image),
     locationName: cleanString(entry.locationName),
     lat: Number(entry.lat),
     lng: Number(entry.lng),
@@ -1128,8 +1170,10 @@ function normalizeImageEntry(entry) {
     yearRange: cleanString(entry.yearRange) || `c. ${year}`,
     clue: cleanString(entry.clue),
     explanation: cleanString(entry.explanation),
-    source: cleanString(entry.source),
-    rights: cleanString(entry.rights),
+    source: [cleanString(entry.source), mirror?.source ? `Image delivery mirror: ${mirror.source}` : ""]
+      .filter(Boolean)
+      .join(" | "),
+    rights: [cleanString(entry.rights), cleanString(mirror?.rights)].filter(Boolean).join(" "),
     difficulty: cleanString(entry.difficulty) || "medium",
     tags: Array.isArray(entry.tags) ? entry.tags.map(cleanString).filter(Boolean) : [],
     dataOrigin: cleanString(entry.dataOrigin),
@@ -1137,6 +1181,7 @@ function normalizeImageEntry(entry) {
     submitter: cleanString(entry.submitter),
     submittedAt: cleanString(entry.submittedAt),
     approvedAt: cleanString(entry.approvedAt),
+    archiveVisible: entry.archiveVisible !== false,
   };
 }
 
@@ -1159,6 +1204,7 @@ function normalizeSupabaseImageRow(row) {
     dataOrigin: "supabase",
     createdAt: row.created_at,
     approvedAt: row.created_at,
+    archiveVisible: row.archive_visible !== false,
   });
 }
 
@@ -2015,6 +2061,13 @@ function showResults() {
 
   $("#shareText").value = shareText;
   $("#copyResultStatus").textContent = "";
+  $("#resultFeedbackForm")?.reset();
+  if ($("#resultFeedbackStatus")) {
+    $("#resultFeedbackStatus").textContent = "";
+  }
+  if ($("#sendResultFeedback")) {
+    $("#sendResultFeedback").disabled = false;
+  }
   trackAnalyticsEvent("complete_game", {
     total_score: totalScore,
     max_score: maxScore,
@@ -2029,6 +2082,61 @@ function showResults() {
     score_percent: scorePercent,
   });
   showView("results");
+}
+
+function bindResultFeedback() {
+  $("#resultFeedbackForm")?.addEventListener("submit", submitResultFeedback);
+}
+
+async function submitResultFeedback(event) {
+  event.preventDefault();
+  const message = cleanString($("#resultFeedbackMessage")?.value);
+  const status = $("#resultFeedbackStatus");
+  const submitButton = $("#sendResultFeedback");
+  if (!status || !submitButton) {
+    return;
+  }
+
+  if (!message) {
+    status.textContent = "Please write a note before sending it.";
+    return;
+  }
+
+  const client = getSupabaseClient();
+  if (!client) {
+    status.textContent = "The curator inbox is temporarily unavailable.";
+    return;
+  }
+
+  const totalScore = getTotalScore();
+  const maxScore = state.rounds.length * MAX_ROUND_SCORE;
+  const challenge = state.activeChallenge || {};
+  submitButton.disabled = true;
+  status.textContent = "Sending privately to the curator...";
+
+  const { error } = await client.from("feedback").insert({
+    message,
+    score: totalScore,
+    max_score: maxScore,
+    score_percent: scorePercentage(totalScore, maxScore),
+    challenge_label: cleanString(challenge.label) || "Chronoscope Game",
+    challenge_date: cleanString(challenge.date) || null,
+  });
+
+  if (error) {
+    submitButton.disabled = false;
+    status.textContent = isMissingRelationError(error, "feedback")
+      ? "The curator inbox is awaiting its database update. Please try again later."
+      : "Your note could not be sent. Please try again.";
+    return;
+  }
+
+  $("#resultFeedbackMessage").value = "";
+  status.textContent = "Thank you. Your note has been sent privately to the curator.";
+  trackAnalyticsEvent("submit_feedback", {
+    score_percent: scorePercentage(totalScore, maxScore),
+    round_count: state.rounds.length,
+  });
 }
 
 function getShareDateLabel() {
@@ -2548,6 +2656,8 @@ function bindCuratorAdmin() {
     rejectedList.addEventListener("click", handleCuratorSubmissionAction);
   }
 
+  $("#curatorFeedbackList")?.addEventListener("click", handleCuratorFeedbackAction);
+
   const approvedList = $("#approvedImagesList");
   if (approvedList) {
     approvedList.addEventListener("click", handleCuratorImageAction);
@@ -2624,9 +2734,10 @@ async function loadCuratorDashboard() {
   renderCuratorPendingSubmissions([]);
   renderCuratorApprovedImages([]);
   renderCuratorRejectedSubmissions([]);
+  renderCuratorFeedback([]);
   renderCuratorDailyChallenges([], [], []);
 
-  const [submissionsLoad, imagesLoad, questionSetsLoad, dailyChallengesLoad] = await Promise.allSettled([
+  const [submissionsLoad, imagesLoad, questionSetsLoad, dailyChallengesLoad, feedbackLoad] = await Promise.allSettled([
     querySupabaseWithTimeout(
       client.from("submissions").select("*").order("created_at", { ascending: false }),
       "submissions"
@@ -2643,6 +2754,10 @@ async function loadCuratorDashboard() {
       client.from("daily_challenges").select("*").order("challenge_date", { ascending: false }),
       "daily challenges"
     ),
+    querySupabaseWithTimeout(
+      client.from("feedback").select("*").order("created_at", { ascending: false }),
+      "player notes"
+    ),
   ]);
 
   const errors = [];
@@ -2650,6 +2765,8 @@ async function loadCuratorDashboard() {
   let images = [];
   let questionSets = [];
   let dailyChallenges = [];
+  let feedback = [];
+  let feedbackUnavailable = false;
 
   if (submissionsLoad.status === "fulfilled") {
     if (submissionsLoad.value.error) {
@@ -2691,16 +2808,34 @@ async function loadCuratorDashboard() {
     errors.push(`daily challenges: ${formatSupabaseError(dailyChallengesLoad.reason)}`);
   }
 
+  if (feedbackLoad.status === "fulfilled") {
+    if (feedbackLoad.value.error) {
+      if (isMissingRelationError(feedbackLoad.value.error, "feedback")) {
+        feedbackUnavailable = true;
+      } else {
+        errors.push(`player notes: ${formatSupabaseError(feedbackLoad.value.error)}`);
+      }
+    } else {
+      feedback = feedbackLoad.value.data || [];
+    }
+  } else if (isMissingRelationError(feedbackLoad.reason, "feedback")) {
+    feedbackUnavailable = true;
+  } else {
+    errors.push(`player notes: ${formatSupabaseError(feedbackLoad.reason)}`);
+  }
+
   try {
     const pending = submissions.filter((entry) => entry.status === "pending");
     const rejected = submissions.filter((entry) => entry.status === "rejected");
     adminState.images = images;
     adminState.questionSets = questionSets;
     adminState.dailyChallenges = dailyChallenges;
+    adminState.feedback = feedback;
 
     renderCuratorPendingSubmissions(pending);
     renderCuratorApprovedImages(images);
     renderCuratorRejectedSubmissions(rejected);
+    renderCuratorFeedback(feedback, feedbackUnavailable);
     renderCuratorQuestionSets(images, questionSets);
     renderCuratorDailyChallenges(images, questionSets, dailyChallenges);
 
@@ -2847,7 +2982,7 @@ function renderCuratorApprovedImages(images) {
   }
 
   if (count) {
-    count.textContent = `${images.length} approved case${images.length === 1 ? "" : "s"}. Select a row to inspect or edit it.`;
+    count.textContent = `${images.length} approved case${images.length === 1 ? "" : "s"}, ordered from oldest to newest. Select a row to inspect or edit it.`;
   }
 
   if (images.length === 0) {
@@ -2855,7 +2990,10 @@ function renderCuratorApprovedImages(images) {
     return;
   }
 
-  container.innerHTML = images.map(renderCuratorImageCard).join("");
+  const orderedImages = [...images].sort(
+    (a, b) => Number(a.year) - Number(b.year) || cleanString(a.title).localeCompare(cleanString(b.title))
+  );
+  container.innerHTML = orderedImages.map(renderCuratorImageCard).join("");
   filterCuratorApprovedImages();
 }
 
@@ -2871,8 +3009,10 @@ function filterCuratorApprovedImages() {
   });
 
   const count = $("#approvedImageCount");
-  if (count && query) {
-    count.textContent = `${visible} matching case${visible === 1 ? "" : "s"}.`;
+  if (count) {
+    count.textContent = query
+      ? `${visible} matching case${visible === 1 ? "" : "s"}.`
+      : `${adminState.images.length} approved case${adminState.images.length === 1 ? "" : "s"}, ordered from oldest to newest. Select a row to inspect or edit it.`;
   }
 }
 
@@ -2888,6 +3028,75 @@ function renderCuratorRejectedSubmissions(submissions) {
   }
 
   container.innerHTML = submissions.map((entry) => renderCuratorSubmissionCard(entry, false)).join("");
+}
+
+function renderCuratorFeedback(feedback, unavailable = false) {
+  const container = $("#curatorFeedbackList");
+  const status = $("#curatorFeedbackStatus");
+  if (!container || !status) {
+    return;
+  }
+
+  if (unavailable) {
+    status.textContent = "Run migration 006_archive_visibility_and_feedback.sql to open this private inbox.";
+    container.innerHTML = renderCuratorEmptyState(
+      "Player notes are not connected yet",
+      "The public form will begin accepting notes after the feedback table is available."
+    );
+    return;
+  }
+
+  status.textContent = `${feedback.length} note${feedback.length === 1 ? "" : "s"}, newest first.`;
+  if (feedback.length === 0) {
+    container.innerHTML = renderCuratorEmptyState(
+      "No player notes yet",
+      "Thoughts sent after a completed game will appear privately here."
+    );
+    return;
+  }
+
+  container.innerHTML = feedback
+    .map((entry) => {
+      const score = Number.isFinite(Number(entry.score)) && Number.isFinite(Number(entry.max_score))
+        ? `${formatNumber(Number(entry.score))} / ${formatNumber(Number(entry.max_score))}`
+        : "Score not recorded";
+      const context = [cleanString(entry.challenge_label), cleanString(entry.challenge_date), score]
+        .filter(Boolean)
+        .join(" · ");
+      return `
+        <article class="curator-feedback-row" data-curator-feedback-id="${escapeAttribute(entry.id)}">
+          <div>
+            <time>${escapeHtml(formatAdminDate(entry.created_at))}</time>
+            <small>${escapeHtml(context)}</small>
+          </div>
+          <p>${escapeHtml(entry.message)}</p>
+          <button class="danger-button compact-button" type="button" data-action="delete-feedback">Delete</button>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+async function handleCuratorFeedbackAction(event) {
+  const button = event.target.closest('button[data-action="delete-feedback"]');
+  const row = event.target.closest("[data-curator-feedback-id]");
+  if (!button || !row) {
+    return;
+  }
+
+  if (!window.confirm("Delete this player note? This cannot be undone.")) {
+    return;
+  }
+
+  const client = getSupabaseClient();
+  const { error } = await client.from("feedback").delete().eq("id", row.dataset.curatorFeedbackId);
+  if (error) {
+    $("#curatorFeedbackStatus").textContent = formatSupabaseError(error);
+    return;
+  }
+
+  $("#curatorFeedbackStatus").textContent = "Player note deleted.";
+  await loadCuratorDashboard();
 }
 
 function renderCuratorQuestionSets(images, sets) {
@@ -2909,7 +3118,8 @@ function renderCuratorQuestionImagePicker(images, selectedIds = []) {
     return;
   }
 
-  picker.innerHTML = images
+  picker.innerHTML = [...images]
+    .sort((a, b) => Number(a.year) - Number(b.year) || cleanString(a.title).localeCompare(cleanString(b.title)))
     .map((image) => {
       const checked = selected.has(image.id) ? "checked" : "";
       const year = image.year_range || image.year || "Unknown date";
@@ -2917,7 +3127,7 @@ function renderCuratorQuestionImagePicker(images, selectedIds = []) {
         <div class="image-choice">
           <label>
             <input type="checkbox" value="${escapeAttribute(image.id)}" ${checked} />
-            <img src="${escapeAttribute(safeImageUrl(image.image_url))}" alt="${escapeAttribute(image.title || "Approved image")}" />
+            <img src="${escapeAttribute(safeImageUrl(resolveArchiveImageUrl(image.image_url)))}" alt="${escapeAttribute(image.title || "Approved image")}" />
             <span>
               <strong>${escapeHtml(image.title || "Untitled image")}</strong>
               <small>${escapeHtml(image.location_name || "No location")} | ${escapeHtml(String(year))}</small>
@@ -3336,7 +3546,7 @@ function renderCuratorSubmissionCard(entry, editable) {
   return `
     <article class="curator-card" data-curator-submission-id="${escapeAttribute(entry.id)}">
       <div class="curator-preview">
-        <img src="${escapeAttribute(safeImageUrl(entry.image_url))}" alt="${escapeAttribute(entry.title || "Submitted image")}" />
+        <img src="${escapeAttribute(safeImageUrl(resolveArchiveImageUrl(entry.image_url)))}" alt="${escapeAttribute(entry.title || "Submitted image")}" />
         <span class="status-pill">${escapeHtml(entry.status || "pending")}</span>
         ${isResearchCandidate ? '<span class="status-pill research-status-pill">Research candidate</span>' : ""}
       </div>
@@ -3367,6 +3577,12 @@ function renderCuratorSubmissionCard(entry, editable) {
           ${renderCuratorInput("Year range", "year_range", entry.year_range)}
           ${renderCuratorInput("Difficulty", "difficulty", difficulty)}
           ${renderCuratorInput("Tags", "tags", tags)}
+          ${renderCuratorCheckbox(
+            "Show in the public Archive immediately",
+            "archive_visible",
+            false,
+            "Leave this off to make the case playable first. You can add it to Explore later from Approved Cases."
+          )}
           ${renderCuratorInput("Source", "source", entry.source)}
           ${renderCuratorInput("Rights", "rights", entry.rights)}
           ${renderCuratorInput("Case note", "case_note", entry.case_note, "textarea")}
@@ -3411,9 +3627,22 @@ function renderCuratorInput(label, field, value, type = "input", required = fals
   `;
 }
 
+function renderCuratorCheckbox(label, field, checked, note = "") {
+  return `
+    <label class="checkbox-field full-span curator-checkbox">
+      <input data-field="${escapeAttribute(field)}" type="checkbox" ${checked ? "checked" : ""} />
+      <span>
+        ${escapeHtml(label)}
+        ${note ? `<small>${escapeHtml(note)}</small>` : ""}
+      </span>
+    </label>
+  `;
+}
+
 function renderCuratorImageCard(row) {
   const year = row.year_range || String(row.year || "");
   const editTags = Array.isArray(row.tags) ? row.tags.join(", ") : "";
+  const archiveVisible = row.archive_visible !== false;
   const searchText = [row.title, row.location_name, year, editTags, row.source]
     .map(cleanString)
     .join(" ")
@@ -3421,13 +3650,16 @@ function renderCuratorImageCard(row) {
   return `
     <details class="curator-image-row" data-curator-image-id="${escapeAttribute(row.id)}" data-search="${escapeAttribute(searchText)}">
       <summary>
-        <img src="${escapeAttribute(safeImageUrl(row.image_url))}" alt="" />
+        <img src="${escapeAttribute(safeImageUrl(resolveArchiveImageUrl(row.image_url)))}" alt="" />
         <span class="curator-image-summary">
           <strong>${escapeHtml(row.title || "Untitled image")}</strong>
           <small>${escapeHtml(row.location_name || "No location")}</small>
         </span>
         <time>${escapeHtml(year || "Unknown date")}</time>
-        <span class="status-pill">${row.approved ? "Published" : "Hidden"}</span>
+        <span class="curator-row-statuses">
+          <span class="status-pill">${row.approved ? "Playable" : "Unpublished"}</span>
+          <span class="status-pill ${archiveVisible ? "" : "is-muted"}">${archiveVisible ? "Archive" : "Game first"}</span>
+        </span>
         <span class="curator-row-disclosure">Edit</span>
       </summary>
       <div class="curator-image-editor">
@@ -3441,6 +3673,12 @@ function renderCuratorImageCard(row) {
           ${renderCuratorInput("Year range", "year_range", row.year_range)}
           ${renderCuratorInput("Difficulty", "difficulty", row.difficulty || "medium")}
           ${renderCuratorInput("Tags", "tags", editTags)}
+          ${renderCuratorCheckbox(
+            "Show in the public Archive",
+            "archive_visible",
+            archiveVisible,
+            "Turn this off to keep the case playable while removing it from Explore and related-record lists."
+          )}
           ${renderCuratorInput("Source", "source", row.source)}
           ${renderCuratorInput("Rights", "rights", row.rights)}
           ${renderCuratorInput("Case note", "case_note", row.case_note, "textarea")}
@@ -3522,6 +3760,16 @@ async function saveCuratorImage(imageId) {
     .update(updateRow)
     .eq("id", imageId);
 
+  let archiveVisibilityUnavailable = false;
+  if (error && isMissingColumnError(error, "archive_visible")) {
+    archiveVisibilityUnavailable = true;
+    delete updateRow.archive_visible;
+    ({ error } = await client
+      .from("images")
+      .update(updateRow)
+      .eq("id", imageId));
+  }
+
   if (error && isMissingColumnError(error, "updated_at")) {
     delete updateRow.updated_at;
     ({ error } = await client
@@ -3535,7 +3783,9 @@ async function saveCuratorImage(imageId) {
     return;
   }
 
-  $("#curatorStatus").textContent = "Published case updated.";
+  $("#curatorStatus").textContent = archiveVisibilityUnavailable
+    ? "Case updated. Run migration 006 to enable its Archive visibility control."
+    : "Published case updated.";
   await loadCuratorDashboard();
 }
 
@@ -3565,9 +3815,19 @@ async function approveCuratorSubmission(submissionId) {
     return;
   }
 
-  const { error: insertError } = await client
+  const imageRow = mapCuratorValuesToImageRow(values);
+  let { error: insertError } = await client
     .from("images")
-    .insert(mapCuratorValuesToImageRow(values));
+    .insert(imageRow);
+
+  let archiveVisibilityUnavailable = false;
+  if (insertError && isMissingColumnError(insertError, "archive_visible")) {
+    archiveVisibilityUnavailable = true;
+    delete imageRow.archive_visible;
+    ({ error: insertError } = await client
+      .from("images")
+      .insert(imageRow));
+  }
 
   if (insertError) {
     $("#curatorStatus").textContent = insertError.message;
@@ -3588,7 +3848,11 @@ async function approveCuratorSubmission(submissionId) {
     return;
   }
 
-  $("#curatorStatus").textContent = "Published. This case is now visible to players.";
+  $("#curatorStatus").textContent = archiveVisibilityUnavailable
+    ? "Published for players. Run migration 006 before using the Archive visibility control."
+    : values.archive_visible
+      ? "Published for players and added to the public Archive."
+      : "Published for players. This case remains out of Explore until you add it from Approved Cases.";
   await loadCuratorDashboard();
 }
 
@@ -3694,6 +3958,7 @@ function getEmptyCuratorValues() {
     difficulty: "",
     tags: [],
     admin_notes: "",
+    archive_visible: false,
   };
 }
 
@@ -3704,7 +3969,7 @@ function readCuratorValuesFromForm(form) {
 
   const values = {};
   $$("[data-field]", form).forEach((field) => {
-    values[field.dataset.field] = cleanString(field.value);
+    values[field.dataset.field] = field.type === "checkbox" ? field.checked : cleanString(field.value);
   });
 
   return {
@@ -3722,6 +3987,7 @@ function readCuratorValuesFromForm(form) {
     difficulty: values.difficulty,
     tags: splitTags(values.tags),
     admin_notes: values.admin_notes,
+    archive_visible: values.archive_visible === true,
   };
 }
 
@@ -3760,6 +4026,7 @@ function mapCuratorValuesToImageRow(values) {
     difficulty: values.difficulty || null,
     tags: values.tags,
     approved: true,
+    archive_visible: values.archive_visible === true,
   };
 }
 
@@ -3778,6 +4045,7 @@ function mapCuratorValuesToImageUpdate(values) {
     rights: values.rights || null,
     difficulty: values.difficulty || null,
     tags: values.tags,
+    archive_visible: values.archive_visible === true,
     updated_at: new Date().toISOString(),
   };
 }
@@ -4742,6 +5010,11 @@ function slugify(value) {
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
     .slice(0, 48);
+}
+
+function resolveArchiveImageUrl(value) {
+  const url = cleanString(value);
+  return SELF_HOSTED_IMAGE_MIRRORS.get(url)?.path || url;
 }
 
 function safeImageUrl(value) {
