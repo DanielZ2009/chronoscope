@@ -682,7 +682,15 @@ function getArchivePeriod(yearValue) {
 function getArchiveMedium(record) {
   const tags = record.tags.map((tag) => tag.toLowerCase());
   if (tags.some((tag) => tag === "painting" || tag.includes("painting"))) return "Painting";
-  if (tags.some((tag) => tag.includes("ukiyo-e") || tag.includes("woodblock") || tag === "print")) return "Print";
+  if (
+    tags.some((tag) =>
+      ["print", "lithograph", "woodblock", "woodcut", "engraving", "etching", "ukiyo-e"].some(
+        (medium) => tag === medium || tag.includes(medium),
+      ),
+    )
+  ) {
+    return "Print";
+  }
   if (tags.some((tag) => tag === "map" || tag.includes("cartography"))) return "Map";
   if (tags.some((tag) => tag === "object" || tag === "artifact" || tag === "artefact")) return "Object";
   return "Photograph";
